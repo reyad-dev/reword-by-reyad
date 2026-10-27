@@ -2,7 +2,7 @@
   <img src="repo-icon.svg" width="160" alt="ReWord by Reyad password manager logo" />
 </p>
 
-# 🛡️ ReWord by Reyad — Open Source Zero-Knowledge Password Manager & Autofill Suite
+# 🛡️ ReWord by Reyad | Open Source Zero-Knowledge Password Manager & Autofill Suite
 ### مدير كلمات المرور الآمن والمشفر بمبدأ المعرفة الصفرية (Zero-Knowledge) من تطوير Mohamed Reyad
 
 [![Cloudflare Pages](https://img.shields.io/badge/Frontend-Cloudflare%20Pages-f38020?logo=cloudflare)](https://pages.cloudflare.com/)
@@ -77,7 +77,6 @@
 ---
 
 ## 📥 استيراد كلمات المرور المدعومة (Supported Import Formats)
-
 يوفر التطبيق محرك استيراد ذكي يقوم بفرز الأعمدة، واستخراج أسماء المواقع من الروابط تلقائياً، وتفادي تكرار الحسابات الموجودة:
 
 | المصدر / التنسيق | نوع الملف | الأعمدة المدعومة تلقائياً |
@@ -317,7 +316,6 @@ It empowers you to host your own encrypted password vault for **$0 forever** usi
 ---
 
 ## ✨ Key Features
-
 * 🔐 **Military-Grade Cryptography:**
   * **AES-256-GCM** symmetric encryption with unique 32-byte salt and random 12-byte IV for every write.
   * **PBKDF2 with SHA-256 (310,000 iterations)** key derivation, complying with OWASP password storage standards.
@@ -397,7 +395,6 @@ It empowers you to host your own encrypted password vault for **$0 forever** usi
 npx wrangler login
 npx wrangler pages deploy . --project-name=reword-vault
 ```
-
 ---
 
 ### Step 3: Deploy Vault Sync Backend to Cloudflare Workers & KV
