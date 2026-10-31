@@ -10,6 +10,9 @@ internal object AutofillSiteMatcher {
         val domainHost = domain?.let(::host).orEmpty()
         val packageParts = packageName.orEmpty().lowercase(Locale.ROOT).split('.').toSet()
         return vault.sites.filter { site ->
+            if (site.url.startsWith("androidapp://")) {
+                return@filter domainHost.isBlank() && site.url.removePrefix("androidapp://") == packageName
+            }
             val siteHost = host(site.url)
             if (domainHost.isNotBlank()) {
                 // A browser package must never override a mismatching website domain.

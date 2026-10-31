@@ -15,7 +15,9 @@
 
 **ReWord by Reyad**, created by **Mohamed Reyad (@reyad-dev)**, is an open-source zero-knowledge password manager with encrypted sync, Chrome autofill, a native Android app, and self-hosted Cloudflare deployment.
 
-**Android 1.2.2:** [Release & APK downloads](https://github.com/reyad-dev/reword-app/releases/tag/v1.2.2) · [Installation and signing notes](android/CHANGELOG.md#downloads-and-installation).
+**Android 1.2.3:** [APK download](./ReWord.apk) ? [Build verification and installation notes](android/CHANGELOG.md).
+
+**Android 1.2.2 release:** [Release & APK downloads](https://github.com/reyad-dev/reword-app/releases/tag/v1.2.2) · [Installation and signing notes](android/CHANGELOG.md#downloads-and-installation).
 
 ---
 

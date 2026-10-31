@@ -4,6 +4,21 @@ import { CV, cleanWorkerUrl, extractDomain } from './crypto.js';
 let IN_MEMORY_VAULT = null;
 let IN_MEMORY_MP = null;
 let AUTO_LOCK_MINUTES = 30;
+const CAPTURE_TTL = 10 * 60 * 1000;
+let saveQueue = Promise.resolve();
+const captureKey = sender => `capture:${sender.tab.id}:${sender.frameId || 0}`;
+function pageOrigin(sender) {
+  try {
+    const url = new URL(sender.url);
+    return /^https?:$/.test(url.protocol) ? url.origin : null;
+  } catch { return null; }
+}
+
+chrome.tabs.onRemoved.addListener(async tabId => {
+  const session = await chrome.storage.session.get(null);
+  const keys = Object.keys(session).filter(key => key.startsWith(`capture:${tabId}:`));
+  if (keys.length) await chrome.storage.session.remove(keys);
+});
 
 // Initialize alarms for auto-lock
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -99,8 +114,59 @@ function notifyAllTabs(action, data = {}) {
 // Message Listener for Popup and Content Scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    let releaseSave;
+    if (['SAVE_CREDENTIAL', 'CONFIRM_PENDING_CREDENTIAL'].includes(msg.action)) {
+      const previous = saveQueue;
+      saveQueue = new Promise(resolve => { releaseSave = resolve; });
+      await previous;
+    }
     try {
       switch (msg.action) {
+        case 'STAGE_USERNAME':
+        case 'STAGE_CREDENTIAL':
+        case 'GET_PENDING_CREDENTIAL':
+        case 'DISMISS_CREDENTIAL': {
+          const origin = pageOrigin(sender);
+          if (!sender.tab || !origin) { sendResponse({ pending: false }); return; }
+          const key = captureKey(sender);
+          const previous = (await chrome.storage.session.get(key))[key];
+          if (msg.action === 'DISMISS_CREDENTIAL') {
+            await chrome.storage.session.remove(key);
+            sendResponse({ success: true });
+            return;
+          }
+          if (msg.action === 'STAGE_CREDENTIAL') {
+            if (typeof msg.pass !== 'string' || !msg.pass || typeof msg.user !== 'string') {
+              sendResponse({ pending: false }); return;
+            }
+            // Session storage is restricted to trusted extension contexts and never synced to disk/cloud.
+            await chrome.storage.session.set({ [key]: {
+              origin, user: msg.user.trim() || (previous?.origin === origin && previous.expires > Date.now() ? previous.user : ''),
+              pass: msg.pass, expires: Date.now() + CAPTURE_TTL
+            } });
+          }
+          if (msg.action === 'STAGE_USERNAME') {
+            if (typeof msg.user === 'string' && msg.user.trim()) {
+              await chrome.storage.session.set({ [key]: {
+                ...(previous?.origin === origin && previous.expires > Date.now() ? previous : {}),
+                origin, user: msg.user.trim(), expires: Date.now() + CAPTURE_TTL
+              } });
+            }
+            sendResponse({ pending: false }); return;
+          }
+          const pending = (await chrome.storage.session.get(key))[key];
+          if (!pending?.pass || pending.origin !== origin || pending.expires < Date.now()) {
+            if (pending?.expires < Date.now()) await chrome.storage.session.remove(key);
+            sendResponse({ pending: false }); return;
+          }
+          const session = await getSession();
+          const domain = extractDomain(origin);
+          const account = session.vault?.sites?.filter(site => extractDomain(site.url) === domain)
+            .flatMap(site => site.accounts || []).find(account => account.user === pending.user);
+          sendResponse({ pending: account?.pass !== pending.pass, user: pending.user,
+            domain, update: Boolean(account), isLocked: !session.isUnlocked });
+          return;
+        }
         case 'GET_STATUS': {
           const session = await getSession();
           const local = await chrome.storage.local.get(['encVault', 'syncId', 'workerUrl', 'meta']);
@@ -281,15 +347,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
 
+        case 'CONFIRM_PENDING_CREDENTIAL':
         case 'SAVE_CREDENTIAL': {
-          const { siteName, siteUrl, user, pass, notes } = msg;
+          let credential = msg;
+          if (msg.action === 'CONFIRM_PENDING_CREDENTIAL') {
+            const origin = pageOrigin(sender);
+            if (!sender.tab || !origin) { sendResponse({ success: false, error: 'invalid_origin' }); return; }
+            const pending = (await chrome.storage.session.get(captureKey(sender)))[captureKey(sender)];
+            if (!pending || pending.origin !== origin || pending.expires < Date.now()) {
+              sendResponse({ success: false, error: 'capture_expired' }); return;
+            }
+            credential = { ...pending, siteName: extractDomain(origin), siteUrl: origin };
+          }
+          let { siteName, siteUrl, user, pass, notes } = credential;
+          if (sender.tab) {
+            const origin = pageOrigin(sender);
+            if (!origin) { sendResponse({ success: false, error: 'invalid_origin' }); return; }
+            siteUrl = origin;
+            siteName = extractDomain(origin);
+          }
+          if (typeof pass !== 'string' || !pass || typeof user !== 'string') {
+            sendResponse({ success: false, error: 'missing_credentials' }); return;
+          }
           const session = await getSession();
           if (!session.isUnlocked || !session.vault || !session.mp) {
             sendResponse({ success: false, error: 'vault_locked' });
             return;
           }
 
-          const vault = session.vault;
+          const vault = structuredClone(session.vault);
           const domain = extractDomain(siteUrl || siteName);
 
           // Find or create site
@@ -335,6 +421,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
 
           IN_MEMORY_VAULT = vault;
+          if (sender.tab) await chrome.storage.session.remove(captureKey(sender));
           sendResponse({ success: true, siteId: site.id });
           break;
         }
@@ -376,6 +463,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } catch (globalErr) {
       console.error('Background message error:', globalErr);
       sendResponse({ success: false, error: globalErr.message });
+    } finally {
+      releaseSave?.();
     }
   })();
 

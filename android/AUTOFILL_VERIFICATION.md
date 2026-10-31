@@ -1,5 +1,51 @@
 # Autofill regression checks
 
+## Credential capture changes — 2026-10-31
+
+The service now advertises `SaveInfo` for login/registration passwords and handles
+`onSaveRequest`. New-password fields are captured for saving without filling old
+passwords into them. Username-only steps use delayed saving on Android 10+;
+save requests combine values from related fill contexts. Android decides when
+to show its save UI, normally when the form is submitted or its fields disappear,
+rather than after every typed character.
+
+Confirmed saves update/create the account, preserve the vault's original JSON
+metadata, encrypt locally, and start a background sync. A locked vault on Android
+9+ opens the existing biometric/master-password flow before persisting. Android
+8 requires unlocking ReWord first. Native app captures retain their exact package
+name for subsequent matching. A manually requested autofill can handle an
+unlabelled editable field without enabling suggestions in excluded chat/search/OTP
+fields.
+
+Build verification completed using Microsoft JDK 17, Gradle 8.11.1, Android SDK 35
+and Build Tools 35.0.0. The missing tools were installed under the user's local
+`.cache/reword-android-build` directory, and the ignored `local.properties` SDK
+path was corrected. `testDebugUnitTest assembleDebug lintDebug` passed: 19 tests,
+0 failures, 0 lint errors and 61 warnings. The standard APK and the side-by-side
+APK both report version **1.2.3**, versionCode **6**. Their signatures were verified
+and match the repository's 1.2.2 APK certificate. The root `ReWord.apk` now contains
+the new standard build; older APKs remain in `android/artifacts`.
+
+Artifacts: `android/artifacts/ReWord-v1.2.3.apk` and
+`android/artifacts/ReWord-v1.2.3-autofill-test.apk`. SHA-256 checksums are in
+`android/artifacts/SHA256SUMS-v1.2.3.txt`. The standard build log is
+`android/artifacts/build-v1.2.3.log`. No USB device was connected, so physical-device
+autofill and biometric checks remain pending. Previous build records below apply
+only to their stated versions.
+
+For device verification:
+
+1. Register an account with username/email, new password and confirmation. Complete
+   the form and accept Android's ReWord save prompt; reopen the vault and verify it.
+2. Repeat while locked, with biometric and master-password unlock; rotate during
+   unlock and saving. Cancel without creating an account in the vault.
+3. Change an existing account's password and verify an update rather than a duplicate.
+4. Complete username-first and password-first screens, including native app fields
+   with no autofill hints; retry using long-press Autofill where appropriate.
+5. Save offline, restart ReWord, then synchronize after restoring connectivity.
+6. Verify metadata/notes and other accounts survive a save, and test repeated saves
+   and matching a newly captured native package.
+
 Run `gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` with JDK 17+ and Android SDK 35.
 
 To build a diagnostic app that installs beside the existing app, run `gradlew.bat -I tools/autofill-test.init.gradle :app:assembleDebug`. It uses application ID `com.reword.app.autofilltest` and label **ReWord Autofill Test**. Sync its vault and select this provider in Android's Autofill settings before testing. Its local settings and biometric enrollment are separate from the original app.

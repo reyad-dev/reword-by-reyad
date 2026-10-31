@@ -1,5 +1,22 @@
 # Android releases
 
+## 1.2.3 (versionCode 6) - 2026-10-31
+
+- Capture login and registration credentials through Android's native save prompt.
+- Update an existing username's password while retaining notes, metadata and unrelated vault fields.
+- Persist the encrypted vault and its timestamp together before confirming a save; synchronize in the background.
+- Reuse biometric/master-password unlock for saves from a locked vault on Android 9+.
+- Recognize new-password, confirmation-password, new-username and phone metadata while excluding OTP fields.
+- Retain username-first save contexts on Android 10+ and support manually requested autofill for unlabelled editable login fields.
+- Match newly captured native accounts to their exact `androidapp://` package URI.
+- Use JDK 17, Android SDK 35 and Build Tools 35.0.0; add regression coverage for credential updates and metadata preservation.
+
+Validation: `testDebugUnitTest assembleDebug lintDebug` passed (19 tests, 0 failures, 0 lint errors and 61 warnings). Both standard and side-by-side APKs built successfully, and their signatures, application IDs and version 1.2.3/versionCode 6 were verified. Physical-device validation remains pending.
+
+Files: repository-root `ReWord.apk`, `android/artifacts/ReWord-v1.2.3.apk`, and `android/artifacts/ReWord-v1.2.3-autofill-test.apk`. Checksums are recorded in `android/artifacts/SHA256SUMS-v1.2.3.txt`.
+
+Installation: the signing key matches the repository's 1.2.2 APK, allowing an in-place update from that APK. A side-by-side **ReWord Autofill Test** package is also provided for devices with an older, differently signed installation. Keep the existing app installed; connect the test package to the same vault and choose it as the system autofill provider.
+
 ## 1.2.2 (versionCode 5) - 2026-10-21
 
 - Fix the autofill authentication result so selecting a locked credential can fill after biometric verification.

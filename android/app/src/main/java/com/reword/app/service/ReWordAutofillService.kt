@@ -50,22 +50,75 @@ class ReWordAutofillService : AutofillService() {
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        // Saving is not implemented; do not advertise a save prompt in fill responses.
-        callback.onSuccess()
+        scope.launch {
+            try {
+                val contexts = request.fillContexts.map { parseStructure(it.structure, CancellationSignal(), true) }
+                val latest = contexts.lastOrNull() ?: error("Missing structure")
+                val related = contexts.filter { it.packageName == latest.packageName && it.webDomain == latest.webDomain }
+                val user = related.asReversed().firstNotNullOfOrNull { p ->
+                    p.usernameFields.firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
+                }.orEmpty().trim()
+                val pass = related.asReversed().firstNotNullOfOrNull { p ->
+                    (p.newPasswordFields + p.passwordFields).firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotEmpty) }
+                } ?: error("Missing password")
+                if (SecureStorage.activeMasterPassword != null) {
+                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass)
+                    callback.onSuccess()
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val intent = Intent(this@ReWordAutofillService, AutofillAuthActivity::class.java).apply {
+                        data = Uri.parse("reword-save:${UUID.randomUUID()}")
+                        putExtra(AutofillAuthActivity.EXTRA_SAVE, true)
+                        putExtra(AutofillAuthActivity.EXTRA_DOMAIN, latest.webDomain)
+                        putExtra(AutofillAuthActivity.EXTRA_PACKAGE, latest.packageName)
+                        putExtra("save_user", user)
+                        putExtra("save_pass", pass)
+                    }
+                    callback.onSuccess(PendingIntent.getActivity(this@ReWordAutofillService, 0, intent,
+                        PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE).intentSender)
+                } else callback.onFailure("افتح خزنة ReWord ثم أعد محاولة الحفظ")
+            } catch (_: Exception) {
+                callback.onFailure("تعذر حفظ بيانات الدخول في ReWord")
+            }
+        }
+    }
+
+    private fun saveInfo(parsed: ParsedStructure): SaveInfo? {
+        val passwords = (parsed.newPasswordFields + parsed.passwordFields).distinct()
+        if (passwords.isEmpty()) {
+            if (parsed.usernameFields.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+            return SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME, parsed.usernameFields.toTypedArray())
+                .setFlags(SaveInfo.FLAG_DELAY_SAVE).build()
+        }
+        val builder = SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_PASSWORD or SaveInfo.SAVE_DATA_TYPE_USERNAME,
+            arrayOf(passwords.first()))
+        val optional = (parsed.usernameFields + passwords.drop(1)).distinct()
+        if (optional.isNotEmpty()) builder.setOptionalIds(optional.toTypedArray())
+        return builder.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE).build()
     }
 
     private fun createResponse(parsed: ParsedStructure, request: FillRequest): FillResponse? {
         if (parsed.packageName == packageName) return null
+        // A manual long-press Autofill request can recover an unlabelled login field.
+        if (request.flags and FillRequest.FLAG_MANUAL_REQUEST != 0 && parsed.usernameFields.isEmpty() &&
+            parsed.passwordFields.isEmpty() && parsed.newPasswordFields.isEmpty() &&
+            parsed.focusedId != null && parsed.focusedId in parsed.editableFields) {
+            parsed.usernameFields.add(parsed.focusedId!!)
+        }
         val username = parsed.usernameFields.firstOrNull { it == parsed.focusedId } ?: parsed.usernameFields.firstOrNull()
         val password = parsed.passwordFields.firstOrNull { it == parsed.focusedId } ?: parsed.passwordFields.firstOrNull()
-        if (username == null && password == null) return null
+        if (username == null && password == null) return saveInfo(parsed)?.let { FillResponse.Builder().setSaveInfo(it).build() }
         // Do not offer credentials while the user is typing into chat/search/OTP fields.
-        if (parsed.focusedId != null && parsed.focusedId !in parsed.usernameFields && parsed.focusedId !in parsed.passwordFields) return null
+        if (parsed.focusedId != null && parsed.focusedId !in parsed.usernameFields && parsed.focusedId !in parsed.passwordFields) {
+            return if (parsed.focusedId in parsed.newPasswordFields) saveInfo(parsed)?.let {
+                FillResponse.Builder().setSaveInfo(it).build()
+            } else null
+        }
         val vault = SecureStorage.activeVault
         val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName) }.orEmpty()
         if (vault == null || matches.isEmpty()) return buildAuthResponse(parsed, username, password, request)
 
         val builder = FillResponse.Builder()
+        saveInfo(parsed)?.let { builder.setSaveInfo(it) }
         var count = 0
         for (site in matches) {
             for (account in site.accounts) {
@@ -129,7 +182,9 @@ class ReWordAutofillService : AutofillService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) dataset.setInlinePresentation(inline)
         username?.let { dataset.setValue(it, null, menu) }
         password?.let { dataset.setValue(it, null, menu) }
-        return FillResponse.Builder().addDataset(dataset.build()).build()
+        return FillResponse.Builder().addDataset(dataset.build()).apply {
+            saveInfo(parsed)?.let { setSaveInfo(it) }
+        }.build()
     }
 
     private data class ParsedStructure(
@@ -138,10 +193,12 @@ class ReWordAutofillService : AutofillService() {
         var focusedId: AutofillId? = null,
         val usernameFields: MutableList<AutofillId> = mutableListOf(),
         val passwordFields: MutableList<AutofillId> = mutableListOf(),
+        val newPasswordFields: MutableList<AutofillId> = mutableListOf(),
+        val values: MutableMap<AutofillId, String> = mutableMapOf(),
         val editableFields: MutableList<AutofillId> = mutableListOf()
     )
 
-    private fun parseStructure(structure: AssistStructure, cancellation: CancellationSignal): ParsedStructure {
+    private fun parseStructure(structure: AssistStructure, cancellation: CancellationSignal, forSave: Boolean = false): ParsedStructure {
         val parsed = ParsedStructure(structure.activityComponent?.packageName)
         val nodes = java.util.ArrayDeque<AssistStructure.ViewNode>()
         for (i in structure.windowNodeCount - 1 downTo 0) nodes.addLast(structure.getWindowNodeAt(i).rootViewNode)
@@ -159,7 +216,9 @@ class ReWordAutofillService : AutofillService() {
             val attributes = html?.attributes.orEmpty().associate { it.first.lowercase(java.util.Locale.ROOT) to it.second }
             val hints = node.autofillHints.orEmpty().toList() + attributes["autocomplete"].orEmpty().split(' ')
             val htmlInput = html?.tag.equals("input", true)
-            val editable = node.isEnabled && (node.inputType != 0 ||
+            val editable = (forSave || node.isEnabled) && (node.inputType != 0 || hints.any {
+                it.lowercase(java.util.Locale.ROOT) in setOf("username", "emailaddress", "password", "newpassword", "newusername", "new-password", "current-password", "email")
+            } ||
                 node.autofillType == android.view.View.AUTOFILL_TYPE_TEXT ||
                 node.className.orEmpty().contains("EditText", true) || htmlInput)
             if (node.isFocused && editable) parsed.focusedId = id
@@ -167,18 +226,23 @@ class ReWordAutofillService : AutofillService() {
                 attributes["name"], attributes["id"], attributes["placeholder"], attributes["aria-label"]).joinToString(" ") { it?.toString().orEmpty() }
             val kind = CredentialFieldClassifier.classify(node.inputType, editable, hints, labels, attributes["type"])
             if (id != null) {
+                val value = node.autofillValue
+                if (value?.isText == true) parsed.values[id] = value.textValue?.toString().orEmpty()
                 when (kind) {
                     CredentialFieldClassifier.Kind.USERNAME -> { parsed.usernameFields.add(id); parsed.editableFields.add(id) }
                     CredentialFieldClassifier.Kind.PASSWORD -> { parsed.passwordFields.add(id); parsed.editableFields.add(id) }
+                    CredentialFieldClassifier.Kind.NEW_PASSWORD -> { parsed.newPasswordFields.add(id); parsed.editableFields.add(id) }
                     CredentialFieldClassifier.Kind.CANDIDATE -> parsed.editableFields.add(id)
                     CredentialFieldClassifier.Kind.NONE -> Unit
                 }
             }
             for (i in node.childCount - 1 downTo 0) nodes.addLast(node.getChildAt(i))
         }
-        if (parsed.passwordFields.isNotEmpty() && parsed.usernameFields.isEmpty()) {
-            val beforePassword = parsed.editableFields.indexOf(parsed.passwordFields.first()) - 1
-            if (beforePassword >= 0) parsed.usernameFields.add(parsed.editableFields[beforePassword])
+        val firstPassword = (parsed.newPasswordFields + parsed.passwordFields).firstOrNull()
+        if (firstPassword != null && parsed.usernameFields.isEmpty()) {
+            val beforePassword = parsed.editableFields.indexOf(firstPassword) - 1
+            if (beforePassword >= 0 && parsed.editableFields[beforePassword] !in parsed.newPasswordFields &&
+                parsed.editableFields[beforePassword] !in parsed.passwordFields) parsed.usernameFields.add(parsed.editableFields[beforePassword])
         }
         return parsed
     }

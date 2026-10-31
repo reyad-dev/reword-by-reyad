@@ -34,6 +34,22 @@ class AutofillUnlockModel : ViewModel() {
     var running = false
         private set
     var biometricInProgress = false
+    val saved = MutableLiveData<Result<Unit>?>()
+    var saving = false
+        private set
+
+    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String) {
+        if (saving || saved.value != null) return
+        saving = true
+        viewModelScope.launch {
+            saved.value = try {
+                CredentialSaver.save(storage, domain, app, user, pass)
+                Result.success(Unit)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { Result.failure(e) }
+            saving = false
+        }
+    }
 
     fun unlock(blob: String, password: String) {
         if (running) return
@@ -58,6 +74,7 @@ class AutofillAuthActivity : FragmentActivity() {
         const val EXTRA_PACKAGE = "extra_package"
         const val EXTRA_USER_FIELD = "extra_user_field"
         const val EXTRA_PASS_FIELD = "extra_pass_field"
+        const val EXTRA_SAVE = "extra_save"
     }
 
     private lateinit var storage: SecureStorage
@@ -74,13 +91,20 @@ class AutofillAuthActivity : FragmentActivity() {
         setResult(Activity.RESULT_CANCELED)
         userField = fieldExtra(EXTRA_USER_FIELD)
         passField = fieldExtra(EXTRA_PASS_FIELD)
-        if (userField == null && passField == null) { finish(); return }
+        if (!intent.getBooleanExtra(EXTRA_SAVE, false) && userField == null && passField == null) { finish(); return }
         try { storage = SecureStorage(this) } catch (_: Exception) {
             Toast.makeText(this, "تعذر فتح التخزين الآمن. افتح ReWord وحاول مرة أخرى", Toast.LENGTH_LONG).show()
             finish()
             return
         }
         model = ViewModelProvider(this)[AutofillUnlockModel::class.java]
+        model.saved.observe(this) { result ->
+            if (result == null) return@observe
+            Toast.makeText(this, if (result.isSuccess) "تم حفظ بيانات الدخول في ReWord"
+                else "تعذر حفظ بيانات الدخول. حاول مرة أخرى", Toast.LENGTH_LONG).show()
+            if (result.isSuccess) setResult(Activity.RESULT_OK)
+            finish()
+        }
         phase = savedInstanceState?.getString("phase") ?: "initial"
         // Reconnect callbacks on recreation; AndroidX retains the active biometric prompt.
         biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
@@ -202,6 +226,13 @@ class AutofillAuthActivity : FragmentActivity() {
 
     private fun chooseAccount(vault: Vault) {
         if (isFinishing || isDestroyed) return
+        if (intent.getBooleanExtra(EXTRA_SAVE, false)) {
+            phase = "saving"
+            dialog?.dismiss()
+            model.save(storage, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE),
+                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty())
+            return
+        }
         phase = "chooser"
         val matches = AutofillSiteMatcher.find(vault, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE))
         val items = (matches.ifEmpty { vault.sites }).flatMap { site -> site.accounts.map { site to it } }

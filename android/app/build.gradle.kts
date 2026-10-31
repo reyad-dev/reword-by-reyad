@@ -7,13 +7,14 @@ plugins {
 android {
     namespace = "com.reword.app"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.reword.app"
         minSdk = 26 // Android 8.0 Oreo - Required for Android Autofill Framework
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.2"
+        versionCode = 6
+        versionName = "1.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

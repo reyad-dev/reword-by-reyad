@@ -34,9 +34,16 @@ class CredentialFieldClassifierTest {
         assertEquals(CredentialFieldClassifier.Kind.NONE, classify(html = "search"))
         assertEquals(CredentialFieldClassifier.Kind.NONE, classify("chat email"))
     }
+    @Test fun registrationAndPhoneMetadataAreRecognized() {
+        assertEquals(CredentialFieldClassifier.Kind.NEW_PASSWORD, classify(hints = listOf("newPassword")))
+        assertEquals(CredentialFieldClassifier.Kind.NEW_PASSWORD, classify("confirm_password", html = "password"))
+        assertEquals(CredentialFieldClassifier.Kind.USERNAME, classify(hints = listOf("newUsername")))
+        assertEquals(CredentialFieldClassifier.Kind.USERNAME, classify("mobile_number"))
+        assertEquals(CredentialFieldClassifier.Kind.NONE, classify("verification_code"))
+    }
     @Test fun labelsAndOneTimeCodesAreNotCredentialFields() {
         assertEquals(CredentialFieldClassifier.Kind.NONE, classify("password_label", editable = false))
         assertEquals(CredentialFieldClassifier.Kind.NONE, classify(hints = listOf("one-time-code")))
-        assertEquals(CredentialFieldClassifier.Kind.NONE, classify(hints = listOf("new-password"), html = "password"))
+        assertEquals(CredentialFieldClassifier.Kind.NEW_PASSWORD, classify(hints = listOf("new-password"), html = "password"))
     }
 }

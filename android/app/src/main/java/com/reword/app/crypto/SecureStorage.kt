@@ -72,6 +72,12 @@ class SecureStorage(context: Context) {
         get() = prefs.getLong(KEY_VAULT_TS, 0L)
         set(value) = prefs.edit().putLong(KEY_VAULT_TS, value).apply()
 
+    /** Called on an IO dispatcher: acknowledge a captured credential only after the encrypted save succeeds. */
+    fun saveVault(blob: String, timestamp: Long): Boolean = prefs.edit()
+        .putString(KEY_VAULT_BLOB, blob)
+        .putLong(KEY_VAULT_TS, timestamp)
+        .commit()
+
     var isBiometricEnabled: Boolean
         get() = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, value).apply()

@@ -227,7 +227,7 @@ function triggerAutofill(user, pass) {
     action: 'TRIGGER_AUTOFILL',
     user,
     pass
-  }, () => {
+  }, { frameId: 0 }, () => {
     showToast('تمت تعبئة البيانات في الصفحة ✓');
     setTimeout(() => window.close(), 600);
   });

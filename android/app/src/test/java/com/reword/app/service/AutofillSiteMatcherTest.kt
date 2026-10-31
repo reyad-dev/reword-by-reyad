@@ -31,4 +31,10 @@ class AutofillSiteMatcherTest {
     @Test fun blankWebsiteDoesNotMatchEveryPackage() {
         assertTrue(AutofillSiteMatcher.find(Vault(listOf(Site())), null, "com.other.app").isEmpty())
     }
+    @Test fun capturedNativePackageMatchesAgainWithoutMatchingOtherApps() {
+        val captured = Site(name = "com.example.android", url = "androidapp://com.example.android")
+        assertEquals(listOf(captured), AutofillSiteMatcher.find(Vault(listOf(captured)), null, "com.example.android"))
+        assertTrue(AutofillSiteMatcher.find(Vault(listOf(captured)), null, "com.unrelated.android").isEmpty())
+        assertTrue(AutofillSiteMatcher.find(Vault(listOf(captured)), "com.example.android", "com.example.android").isEmpty())
+    }
 }
