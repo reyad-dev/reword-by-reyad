@@ -7,6 +7,29 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const source = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
+// Load crypto.js (an ES module) as a plain script to reuse its pure helpers.
+const cryptoHelpers = (() => {
+  const ctx = { URL, crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob };
+  vm.runInNewContext(source('crypto.js').replace(/^export /gm, '') +
+    '\n;this.siteMatchesDomain = siteMatchesDomain; this.sameUser = sameUser; this.hostMatches = hostMatches;', ctx);
+  return ctx;
+})();
+
+test('domain matching is strict: subdomains and parents only, no substrings, siblings or brand names', () => {
+  const m = cryptoHelpers.siteMatchesDomain;
+  assert.equal(m({ url: 'https://x.com' }, 'netflix.com'), false);
+  assert.equal(m({ url: 'https://example.test' }, 'login.example.test'), true);
+  assert.equal(m({ url: 'https://login.example.test' }, 'example.test'), true);
+  assert.equal(m({ url: 'https://a.example.test' }, 'b.example.test'), false);
+  assert.equal(m({ url: 'https://alice.github.io' }, 'github.io'), false);
+  assert.equal(m({ url: 'https://example.test' }, 'example.test.attacker.test'), false);
+  assert.equal(m({ url: 'a.test, https://b.example.org/login' }, 'b.example.org'), true);
+  assert.equal(m({ name: 'facebook.com', url: '' }, 'm.facebook.com'), true);
+  assert.equal(m({ name: 'Facebook', url: '' }, 'facebook.xyz'), false);
+  assert.equal(m({ name: '', url: '' }, 'any.test'), false);
+  assert.equal(cryptoHelpers.sameUser(' Alice@Test ', 'alice@test'), true);
+});
+
 function worker() {
   const local = {}, session = {};
   const area = data => ({
@@ -25,7 +48,9 @@ function worker() {
   vm.runInNewContext(source('background.js').replace(/^import .*;$/m, ''), {
     chrome, console, structuredClone, URL, Date, Math,
     CV: { enc: async value => JSON.stringify(value), dec: async value => JSON.parse(value) },
-    cleanWorkerUrl: value => value || '', extractDomain: value => new URL(value).hostname
+    cleanWorkerUrl: value => value || '', extractDomain: value => new URL(value).hostname,
+    // Real matching helpers from crypto.js (the same code the extension ships)
+    siteMatchesDomain: cryptoHelpers.siteMatchesDomain, sameUser: cryptoHelpers.sameUser
   });
   const sender = { tab: { id: 1 }, frameId: 0, url: 'https://example.test/signup' };
   return { local, session, sender, send: (msg, from = sender) => new Promise(resolve => listener(msg, from, resolve)) };

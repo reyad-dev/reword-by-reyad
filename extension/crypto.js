@@ -76,6 +76,29 @@ export function cleanWorkerUrl(url) {
   return u;
 }
 
+// Exact host, a subdomain of the saved host, or its parent domain. Sibling subdomains and
+// substring/brand-name matches are deliberately rejected (x.com must not match netflix.com,
+// alice.github.io must not match bob.github.io, "Facebook" must not match facebook.xyz).
+const SHARED_SUFFIXES = ['github.io', 'gitlab.io', 'herokuapp.com', 'blogspot.com', 'netlify.app', 'vercel.app',
+  'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com', 'appspot.com', 'azurewebsites.net', 'wordpress.com'];
+
+export function hostMatches(pageHost, savedHost) {
+  if (!pageHost || !savedHost || !pageHost.includes('.') || !savedHost.includes('.')) return false;
+  if (pageHost === savedHost || pageHost.endsWith('.' + savedHost)) return true;
+  return savedHost.endsWith('.' + pageHost) && !SHARED_SUFFIXES.includes(pageHost);
+}
+
+// A site's url field may hold several URLs; a site without URL may be named like a domain.
+export function siteMatchesDomain(site, pageHost) {
+  if (!site || !pageHost) return false;
+  const urls = String(site.url || '').split(/[,;\s]+/).map(u => extractDomain(u)).filter(h => h.includes('.'));
+  if (urls.length) return urls.some(h => hostMatches(pageHost, h));
+  const name = String(site.name || '').trim().toLowerCase();
+  return name.includes('.') && !name.includes(' ') && hostMatches(pageHost, extractDomain(name));
+}
+
+export const sameUser = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
 export function extractDomain(url) {
   if (!url) return '';
   try {

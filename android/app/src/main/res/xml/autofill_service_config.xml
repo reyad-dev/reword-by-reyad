@@ -1,4 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  compatibility-package: enables autofill in browsers that don't implement the
+  Autofill framework natively (they expose fields via accessibility compat mode).
+  maxLongVersionCode is a large number so new browser versions keep working.
+-->
 <autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:settingsActivity="com.reword.app.MainActivity"
-    android:supportsInlineSuggestions="true" />
+    android:supportsInlineSuggestions="true">
+    <compatibility-package android:name="com.android.chrome" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.chrome.beta" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.chrome.dev" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.chrome.canary" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="org.chromium.chrome" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.microsoft.emmx" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.brave.browser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.opera.browser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.opera.mini.native" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.sec.android.app.sbrowser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.sec.android.app.sbrowser.beta" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.vivaldi.browser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.kiwibrowser.browser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.duckduckgo.mobile.android" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.mi.globalbrowser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.yandex.browser" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.UCMobile.intl" android:maxLongVersionCode="10000000000" />
+    <compatibility-package android:name="com.android.browser" android:maxLongVersionCode="10000000000" />
+</autofill-service>

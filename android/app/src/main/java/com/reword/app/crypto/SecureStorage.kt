@@ -6,7 +6,10 @@ import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.reword.app.model.Vault
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Manages locally persisted encrypted settings and in-memory unlocked vault cache.
@@ -35,6 +38,7 @@ class SecureStorage(context: Context) {
         private const val KEY_BIOMETRIC_IV = "rw_biometric_iv"
         private const val KEY_BIOMETRIC_PASS = "rw_biometric_pass"
         private const val KEY_BIOMETRIC_ENABLED = "rw_biometric_enabled"
+        private const val KEY_SITE_LINKS = "rw_site_links"
 
         // In-memory unlocked vault cache during active session
         @Volatile
@@ -45,16 +49,38 @@ class SecureStorage(context: Context) {
         var activeMasterPassword: String? = null
             private set
 
+        private val _vaultFlow = MutableStateFlow<Vault?>(null)
+
+        /** Emits on unlock, sync, autofill save and lock so open screens stay current. */
+        val vaultFlow: StateFlow<Vault?> = _vaultFlow
+
         fun setSession(vault: Vault, password: String) {
             activeVault = vault
             activeMasterPassword = password
+            _vaultFlow.value = vault
         }
 
         fun clearSession() {
             activeVault = null
             activeMasterPassword = null
+            _vaultFlow.value = null
         }
     }
+
+    /** Site the user picked for an app/domain, so the next autofill request recognizes it. */
+    fun getLinkedSiteId(key: String?): String? = key?.let { readLinks()[it] }
+
+    fun linkSite(key: String?, siteId: String?) {
+        if (key.isNullOrBlank() || siteId.isNullOrBlank()) return
+        val links = readLinks().toMutableMap().apply { put(key, siteId) }
+        prefs.edit().putString(KEY_SITE_LINKS, gson.toJson(links)).apply()
+    }
+
+    private fun readLinks(): Map<String, String> = try {
+        prefs.getString(KEY_SITE_LINKS, null)?.let {
+            gson.fromJson<Map<String, String>>(it, object : TypeToken<Map<String, String>>() {}.type)
+        } ?: emptyMap()
+    } catch (_: Exception) { emptyMap() }
 
     var syncId: String?
         get() = prefs.getString(KEY_SYNC_ID, null)

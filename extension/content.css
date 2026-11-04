@@ -2,7 +2,7 @@
 
 /* In-field Floating Icon */
 .reword-autofill-btn {
-  position: absolute !important;
+  position: fixed !important;
   z-index: 2147483645 !important;
   width: 24px !important;
   height: 24px !important;
@@ -39,7 +39,7 @@
 
 /* Floating Dropdown Suggestion */
 .reword-dropdown {
-  position: absolute !important;
+  position: fixed !important;
   z-index: 2147483647 !important;
   min-width: 260px !important;
   max-width: 320px !important;
@@ -248,4 +248,9 @@
   height: 16px !important;
   border-radius: 4px !important;
   object-fit: contain !important;
+}
+
+.reword-locked-btn {
+  border: none !important;
+  font-family: inherit !important;
 }

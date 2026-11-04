@@ -13,8 +13,8 @@ android {
         applicationId = "com.reword.app"
         minSdk = 26 // Android 8.0 Oreo - Required for Android Autofill Framework
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.3"
+        versionCode = 7
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -6,6 +6,22 @@
   const SHIELD_SVG = `<svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>`;
 
   let activeDropdown = null;
+  const IS_TOP = window === window.top;
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let autoOpened = new WeakSet();
+
+  // Fixed (viewport) positioning below the field; flips above when there is no room.
+  function positionDropdown(dropdown, field) {
+    const rect = field.getBoundingClientRect();
+    const width = Math.min(Math.max(rect.width, 280), 340);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    dropdown.style.setProperty('width', `${width}px`, 'important');
+    dropdown.style.setProperty('left', `${left}px`, 'important');
+    const h = dropdown.offsetHeight || 260;
+    const below = rect.bottom + 6;
+    const top = (below + h > window.innerHeight && rect.top - h - 6 > 0) ? rect.top - h - 6 : below;
+    dropdown.style.setProperty('top', `${top}px`, 'important');
+  }
   // Map of active fields to their badge controller: Map<HTMLInputElement, { btn, updatePosition, destroy }>
   const activeBadges = new Map();
   const inputs = (root = document) => {
@@ -58,26 +74,17 @@
       } catch (_) {}
     }
 
-    // Layer 4: Full Ancestor Tree Walk (detects hidden parent screens, modals, opacity, pointer-events)
+    // Layer 4: Ancestor walk for hidden screens/modals.
+    // pointer-events, aria-hidden and center hit-testing are intentionally NOT used: floating labels,
+    // placeholder overlays and wrapper styles made the badge vanish on many real login pages.
     let curr = field;
     while (curr && curr !== document.body && curr !== document.documentElement) {
       const s = window.getComputedStyle(curr);
       if (s.display === 'none') return false;
       if (s.visibility === 'hidden' || s.visibility === 'collapse') return false;
       if (parseFloat(s.opacity) < 0.1) return false;
-      if (s.pointerEvents === 'none') return false;
-      if (curr.hasAttribute('hidden') || curr.getAttribute('aria-hidden') === 'true') return false;
-      curr = curr.parentElement;
-    }
-
-    // Layer 5: Hit-testing at center point to ensure field is not obscured by an overlay, loading screen, or dialog
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    if (cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight) {
-      const hit = field.getRootNode().elementFromPoint?.(cx, cy) || document.elementFromPoint(cx, cy);
-      if (hit && hit !== field && !field.contains(hit) && !hit.contains(field) && !hit.classList.contains('reword-autofill-btn')) {
-        return false;
-      }
+      if (curr.hasAttribute('hidden')) return false;
+      curr = curr.parentElement || curr.getRootNode()?.host || null;
     }
 
     return true;
@@ -174,8 +181,9 @@
     const btn = document.createElement('div');
     btn.className = 'reword-autofill-btn';
     btn.innerHTML = SHIELD_SVG;
-    btn.title = 'ReWord Autofill';
-    document.body.appendChild(btn);
+    btn.title = 'ReWord — اختر حساباً للملء';
+    // Fixed + attached to <html>: transformed or positioned <body> elements can't shift the badge.
+    document.documentElement.appendChild(btn);
 
     function updateBadgePosition() {
       if (!isFieldVisible(inputField)) {
@@ -184,16 +192,14 @@
       }
 
       const rect = inputField.getBoundingClientRect();
-      btn.style.display = 'flex';
-      
+      const size = Math.max(18, Math.min(24, rect.height - 6));
       const isRtl = window.getComputedStyle(inputField).direction === 'rtl';
-      const top = window.scrollY + rect.top + (rect.height - 24) / 2;
-      const left = isRtl
-        ? window.scrollX + rect.left + 6
-        : window.scrollX + rect.right - 30;
-
-      btn.style.top = `${top}px`;
-      btn.style.left = `${left}px`;
+      btn.style.setProperty('display', 'flex', 'important');
+      btn.style.setProperty('width', `${size}px`, 'important');
+      btn.style.setProperty('height', `${size}px`, 'important');
+      btn.style.setProperty('top', `${rect.top + (rect.height - size) / 2}px`, 'important');
+      btn.style.setProperty('left', `${isRtl ? rect.left + 6 : rect.right - size - 6}px`, 'important');
+      if (activeDropdown?.__field === inputField) positionDropdown(activeDropdown, inputField);
     }
 
     // Attach ResizeObserver to field if available to track field removal/shrinking instantly
@@ -209,17 +215,20 @@
 
     const onScrollOrResize = () => updateBadgePosition();
     window.addEventListener('resize', onScrollOrResize, { passive: true });
-    window.addEventListener('scroll', onScrollOrResize, { passive: true });
+    // capture: also follow scrolling inside inner containers (modals, side panels)
+    window.addEventListener('scroll', onScrollOrResize, { passive: true, capture: true });
 
     btn.addEventListener('mousedown', (e) => {
+      if (!e.isTrusted) return; // page scripts cannot open the account list
       e.preventDefault();
       e.stopPropagation();
+      if (activeDropdown?.__field === inputField) { closeDropdown(); return; }
       openAutofillDropdown(inputField, btn);
     });
 
     const destroy = () => {
       window.removeEventListener('resize', onScrollOrResize);
-      window.removeEventListener('scroll', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, { capture: true });
       if (ro) {
         ro.disconnect();
         ro = null;
@@ -239,22 +248,19 @@
   }
 
   // Open Autofill Dropdown
-  function openAutofillDropdown(field, anchorBtn) {
-    closeDropdown();
-
+  function openAutofillDropdown(field, anchorBtn, auto = false) {
     chrome.runtime.sendMessage({
       action: 'GET_MATCHING_CREDENTIALS',
       url: window.location.href
     }, (res) => {
-      if (chrome.runtime.lastError || !res) return;
+      if (chrome.runtime.lastError || !res || !field.isConnected) return;
+      // Opened automatically on focus: only when there is something to fill
+      if (auto && (res.isLocked || !res.matches?.length)) return;
+      closeDropdown();
 
       const dropdown = document.createElement('div');
       dropdown.className = 'reword-dropdown';
-
-      const rect = field.getBoundingClientRect();
-      dropdown.style.top = `${window.scrollY + rect.bottom + 6}px`;
-      dropdown.style.left = `${window.scrollX + rect.left}px`;
-      dropdown.style.width = `${Math.max(rect.width, 280)}px`;
+      dropdown.__field = field;
 
       if (res.isLocked) {
         dropdown.innerHTML = `
@@ -264,9 +270,20 @@
           </div>
           <div class="reword-dropdown-locked">
             <div>🔒 الخزينة مقفلة حالياً</div>
-            <div style="font-size:11px;color:#a1a1aa;margin-top:4px;">افتح إضافة ReWord من شريط المتصفح لإلغاء القفل</div>
+            <button type="button" class="reword-locked-btn">فتح الخزينة</button>
+            <div class="reword-locked-help" style="font-size:11px;color:#a1a1aa;margin-top:6px;">أو اضغط على أيقونة ReWord في شريط المتصفح</div>
           </div>
         `;
+        dropdown.querySelector('.reword-locked-btn').addEventListener('mousedown', (e) => {
+          if (!e.isTrusted) return;
+          e.preventDefault();
+          e.stopPropagation();
+          chrome.runtime.sendMessage({ action: 'OPEN_POPUP' }, (r) => {
+            if (chrome.runtime.lastError || !r?.success) {
+              dropdown.querySelector('.reword-locked-help').textContent = 'اضغط على أيقونة ReWord 🧩 في شريط المتصفح لإدخال كلمة المرور الرئيسية';
+            } else closeDropdown();
+          });
+        });
       } else {
         const hasMatches = res.matches && res.matches.length > 0;
         const allList = res.allAccounts || [];
@@ -274,15 +291,15 @@
         dropdown.innerHTML = `
           <div class="reword-dropdown-header">
             <div class="reword-dropdown-brand">${SHIELD_SVG}<span>ReWord</span></div>
-            <span>${res.domain || 'الموقع الحالي'}</span>
+            <span>${esc(res.domain || 'الموقع الحالي')}</span>
           </div>
           ${!hasMatches ? `
             <div class="reword-empty-notice">
-              لا توجد حسابات مسجلة لهذا الموقع
+              لا توجد حسابات لهذا الموقع — ابحث في الخزينة
             </div>
           ` : ''}
           <div class="reword-dropdown-search-wrap">
-            <input type="text" class="reword-search-input" placeholder="🔍 ابحث في الخزينة عن أي حساب..." ${!hasMatches ? 'autofocus' : ''}>
+            <input type="text" class="reword-search-input" autocomplete="off" placeholder="🔍 ابحث في الخزينة عن أي حساب..." ${!hasMatches ? 'autofocus' : ''}>
           </div>
           <div class="reword-search-results"></div>
           <div class="reword-dropdown-footer">
@@ -306,28 +323,33 @@
         function renderList(accounts) {
           resultsContainer.innerHTML = '';
           if (!accounts || accounts.length === 0) {
-            resultsContainer.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px;">لا توجد حسابات مطابقة للبحث</div>';
+            if (accounts !== res.matches) resultsContainer.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:11px;padding:12px;">لا توجد حسابات مطابقة للبحث</div>';
             return;
           }
           accounts.forEach((acc) => {
             const item = document.createElement('div');
             item.className = 'reword-dropdown-item';
             const firstUrl = acc.siteUrl ? acc.siteUrl.split(/[,;\s]+/)[0].trim() : '';
-            const fav = firstUrl ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(firstUrl)}&sz=64` : '';
             const letter = (acc.siteName || acc.user || 'W').charAt(0).toUpperCase();
 
+            // Escaped: vault text must never become page HTML
             item.innerHTML = `
-              <div class="reword-item-avatar">
-                ${fav ? `<img src="${fav}" class="reword-fav-img" onerror="this.style.display='none';this.nextElementSibling.style.display='block';" alt="">` : ''}
-                <span style="${fav ? 'display:none;' : ''}">${letter}</span>
-              </div>
+              <div class="reword-item-avatar"><span>${esc(letter)}</span></div>
               <div class="reword-item-info">
-                <span class="reword-item-user">${acc.user || 'بدون اسم مستخدم'}</span>
-                <span class="reword-item-sub">${acc.siteName || acc.siteUrl || res.domain}</span>
+                <span class="reword-item-user">${esc(acc.user || 'بدون اسم مستخدم')}</span>
+                <span class="reword-item-sub">${esc(acc.siteName || acc.siteUrl || res.domain)}</span>
               </div>
             `;
+            if (firstUrl) {
+              const img = new Image();
+              img.className = 'reword-fav-img';
+              img.alt = '';
+              img.onload = () => { const av = item.querySelector('.reword-item-avatar'); av.textContent = ''; av.appendChild(img); };
+              img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(firstUrl)}&sz=64`;
+            }
 
             item.addEventListener('mousedown', (e) => {
+              if (!e.isTrusted) return; // page scripts cannot trigger a fill
               e.preventDefault();
               e.stopPropagation();
               fillCreds(acc);
@@ -337,14 +359,15 @@
           });
         }
 
-        // Initially render matches if present, or all accounts
-        renderList(hasMatches ? res.matches : allList);
+        // Only this site's accounts are put in the page; other sites appear after the user searches.
+        renderList(res.matches || []);
 
         // Filter on search input
         searchInput.addEventListener('input', (e) => {
+          if (!e.isTrusted) return;
           const q = e.target.value.trim().toLowerCase();
           if (!q) {
-            renderList(hasMatches ? res.matches : allList);
+            renderList(res.matches || []);
             return;
           }
           const filtered = allList.filter((a) =>
@@ -357,6 +380,7 @@
 
         // Quick Save Button
         saveBtn.addEventListener('mousedown', (e) => {
+          if (!e.isTrusted) return;
           e.preventDefault();
           e.stopPropagation();
           const usernameField = field.type === 'password' ? findUsernameField(field) : field;
@@ -388,8 +412,9 @@
         });
       }
 
-      document.body.appendChild(dropdown);
+      document.documentElement.appendChild(dropdown);
       activeDropdown = dropdown;
+      positionDropdown(dropdown, field);
     });
   }
 
@@ -490,7 +515,16 @@
     const target = event.composedPath()[0];
     if (target?.tagName === 'INPUT' && !isInternal(target)) captureCredentials(target);
   }, true);
-  document.addEventListener('focusin', () => scanPage(), true);
+  // Show this site's accounts when the user clicks into a login field (top frame, real focus only)
+  document.addEventListener('focusin', (e) => {
+    scanPage();
+    const t = e.composedPath()[0];
+    if (!e.isTrusted || !IS_TOP || !(t instanceof HTMLInputElement) || t.value) return;
+    if (!activeBadges.has(t) || autoOpened.has(t)) return;
+    autoOpened.add(t);
+    openAutofillDropdown(t, null, true);
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDropdown(); }, true);
   chrome.runtime.sendMessage({ action: 'GET_PENDING_CREDENTIAL' }, state => {
     if (!chrome.runtime.lastError) showSavePrompt(state);
   });
@@ -545,6 +579,7 @@
   function handleUrlChange() {
     if (window.location.href !== lastHref) {
       lastHref = window.location.href;
+      autoOpened = new WeakSet();
       clearAllBadges();
       setTimeout(scanPage, 200);
     }

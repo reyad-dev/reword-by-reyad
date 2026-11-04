@@ -39,6 +39,25 @@ class CredentialSaverTest {
         assertEquals("updated-test-pass", site.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
     }
 
+    @Test fun usernameCaseAndPasswordOnlyScreensUpdateExistingAccount() {
+        val root = JsonParser.parseString("""{"sites":[{"id":"s","name":"Example","url":"https://example.test",
+          "accounts":[{"id":"a","user":"Alice@Mail.test","pass":"old"}]}]}""").asJsonObject
+        assertEquals("s", CredentialSaver.mergeCredential(root, "login.example.test", "com.browser", " alice@mail.test ", "new1"))
+        CredentialSaver.mergeCredential(root, "example.test", "com.browser", "", "new2")
+        val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
+        assertEquals(1, accounts.size())
+        assertEquals("new2", accounts[0].asJsonObject.get("pass").asString)
+    }
+
+    @Test fun newUsernameOnSameSiteAddsSecondAccount() {
+        val root = JsonParser.parseString("""{"sites":[{"id":"s","name":"Example","url":"https://example.test",
+          "accounts":[{"id":"a","user":"alice","pass":"p1"}]}]}""").asJsonObject
+        CredentialSaver.mergeCredential(root, "example.test", "com.browser", "bob", "p2")
+        val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
+        assertEquals(2, accounts.size())
+        assertEquals("p1", accounts[0].asJsonObject.get("pass").asString)
+    }
+
     @Test fun anotherDomainCannotOverwriteAnExistingSite() {
         val root = JsonParser.parseString("""{"sites":[]}""").asJsonObject
         CredentialSaver.mergeCredential(root, "example.test", "com.browser", "alice", "original-test-pass")

@@ -67,6 +67,11 @@ class MainActivity : FragmentActivity() {
         var connectError by remember { mutableStateOf<String?>(null) }
         var isBiometricEnabled by remember { mutableStateOf(storage.isBiometricEnabled) }
 
+        // Show accounts saved/updated by the autofill service without reopening the app
+        LaunchedEffect(Unit) {
+            SecureStorage.vaultFlow.collect { v -> if (v != null) vaultState = v }
+        }
+
         Crossfade(targetState = currentScreen, label = "ScreenTransition") { screen ->
             when (screen) {
                 is Screen.Connect -> {

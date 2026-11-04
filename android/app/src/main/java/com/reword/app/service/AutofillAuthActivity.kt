@@ -75,6 +75,7 @@ class AutofillAuthActivity : FragmentActivity() {
         const val EXTRA_USER_FIELD = "extra_user_field"
         const val EXTRA_PASS_FIELD = "extra_pass_field"
         const val EXTRA_SAVE = "extra_save"
+        const val EXTRA_CHOOSE_ANY = "extra_choose_any"
     }
 
     private lateinit var storage: SecureStorage
@@ -234,21 +235,33 @@ class AutofillAuthActivity : FragmentActivity() {
             return
         }
         phase = "chooser"
-        val matches = AutofillSiteMatcher.find(vault, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE))
-        val items = (matches.ifEmpty { vault.sites }).flatMap { site -> site.accounts.map { site to it } }
+        val domain = intent.getStringExtra(EXTRA_DOMAIN)
+        val pkg = intent.getStringExtra(EXTRA_PACKAGE)
+        val linkKey = AutofillSiteMatcher.linkKey(domain, pkg)
+        val matches = AutofillSiteMatcher.find(vault, domain, pkg, storage.getLinkedSiteId(linkKey))
+        val chooseAny = intent.getBooleanExtra(EXTRA_CHOOSE_ANY, false)
+        // Matching sites first (★), then the rest of the vault so any account can still be picked.
+        val ordered = matches + vault.sites.filter { it !in matches }
+        val items = ordered.flatMap { site -> site.accounts.map { site to it } }
         if (items.isEmpty()) {
             Toast.makeText(this, "لا توجد حسابات مسجلة في الخزنة", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
         // Do not silently choose the first account when several accounts match.
-        if (matches.isNotEmpty() && items.size == 1) {
+        val matchedAccounts = matches.sumOf { it.accounts.size }
+        if (!chooseAny && matchedAccounts == 1) {
             returnDataset(items.first().first, items.first().second)
             return
         }
         dialog?.dismiss()
         dialog = AlertDialog.Builder(this).setTitle("اختر الحساب للملء التلقائي")
-            .setItems(items.map { (site, account) -> "${site.name.ifBlank { site.url }} (${account.user})" }.toTypedArray()) { _, which ->
+            .setItems(items.map { (site, account) ->
+                val star = if (site in matches) "★ " else ""
+                "$star${site.name.ifBlank { site.url }} (${account.user.ifBlank { "بدون اسم مستخدم" }})"
+            }.toTypedArray()) { _, which ->
+                // Learn the choice: this app/site is recognized automatically next time.
+                storage.linkSite(linkKey, items[which].first.id)
                 returnDataset(items[which].first, items[which].second)
             }.setNegativeButton(R.string.biometric_prompt_cancel) { _, _ -> finish() }
             .setOnCancelListener { finish() }.show()

@@ -114,7 +114,8 @@ class ReWordAutofillService : AutofillService() {
             } else null
         }
         val vault = SecureStorage.activeVault
-        val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName) }.orEmpty()
+        val linked = SecureStorage(this).getLinkedSiteId(AutofillSiteMatcher.linkKey(parsed.webDomain, parsed.packageName))
+        val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName, linked) }.orEmpty()
         if (vault == null || matches.isEmpty()) return buildAuthResponse(parsed, username, password, request)
 
         val builder = FillResponse.Builder()
@@ -126,7 +127,11 @@ class ReWordAutofillService : AutofillService() {
                 builder.addDataset(buildDataset(site, account, username, password, request, count++))
             }
         }
-        return if (count > 0) builder.build() else buildAuthResponse(parsed, username, password, request)
+        if (count == 0) return buildAuthResponse(parsed, username, password, request)
+        // Matching accounts are shown, but the user can still pick any other account from the vault.
+        builder.addDataset(authDataset(parsed, username, password, request, true,
+            "ReWord — حساب آخر", "البحث في كل حسابات الخزنة", count))
+        return builder.build()
     }
 
     private fun presentation(title: String, subtitle: String) = RemoteViews(packageName, R.layout.autofill_dataset_item).apply {
@@ -162,29 +167,39 @@ class ReWordAutofillService : AutofillService() {
     }
 
     private fun buildAuthResponse(parsed: ParsedStructure, username: AutofillId?, password: AutofillId?, request: FillRequest): FillResponse {
+        val title = if (SecureStorage.activeVault == null) "فتح ReWord 🔒" else "اختيار حساب من ReWord"
+        val subtitle = if (SecureStorage.activeVault == null) "افتح بالبصمة لملء بيانات الدخول" else "اضغط لاختيار حساب للملء التلقائي"
+        return FillResponse.Builder()
+            .addDataset(authDataset(parsed, username, password, request, false, title, subtitle, 0))
+            .apply { saveInfo(parsed)?.let { setSaveInfo(it) } }
+            .build()
+    }
+
+    /** Dataset without values that opens [AutofillAuthActivity]; the activity returns the real Dataset. */
+    private fun authDataset(
+        parsed: ParsedStructure, username: AutofillId?, password: AutofillId?, request: FillRequest,
+        chooseAny: Boolean, title: String, subtitle: String, index: Int
+    ): Dataset {
         val intent = Intent(this, AutofillAuthActivity::class.java).apply {
             data = Uri.parse("reword-autofill:${UUID.randomUUID()}")
             putExtra(AutofillAuthActivity.EXTRA_DOMAIN, parsed.webDomain)
             putExtra(AutofillAuthActivity.EXTRA_PACKAGE, parsed.packageName)
             putExtra(AutofillAuthActivity.EXTRA_USER_FIELD, username)
             putExtra(AutofillAuthActivity.EXTRA_PASS_FIELD, password)
+            putExtra(AutofillAuthActivity.EXTRA_CHOOSE_ANY, chooseAny)
         }
         // Separate pending intents keep concurrent sessions from replacing each other's field IDs.
         val flags = PendingIntent.FLAG_ONE_SHOT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
         val auth = PendingIntent.getActivity(this, 0, intent, flags)
-        val title = if (SecureStorage.activeVault == null) "فتح ReWord" else "اختيار حساب من ReWord"
-        val subtitle = "اضغط للتحقق واختيار حساب للملء التلقائي"
         val menu = presentation(title, subtitle)
         // Dataset authentication must be paired with a Dataset result from the activity.
         val dataset = Dataset.Builder(menu).setAuthentication(auth.intentSender)
-        val inline = createInlinePresentation(request, title, subtitle, 0)
+        val inline = createInlinePresentation(request, title, subtitle, index)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) dataset.setInlinePresentation(inline)
         username?.let { dataset.setValue(it, null, menu) }
         password?.let { dataset.setValue(it, null, menu) }
-        return FillResponse.Builder().addDataset(dataset.build()).apply {
-            saveInfo(parsed)?.let { setSaveInfo(it) }
-        }.build()
+        return dataset.build()
     }
 
     private data class ParsedStructure(

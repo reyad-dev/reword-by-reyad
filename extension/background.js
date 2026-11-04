@@ -1,5 +1,5 @@
 // ReWord Chrome Extension - Background Service Worker (Manifest V3)
-import { CV, cleanWorkerUrl, extractDomain } from './crypto.js';
+import { CV, cleanWorkerUrl, extractDomain, siteMatchesDomain, sameUser } from './crypto.js';
 
 let IN_MEMORY_VAULT = null;
 let IN_MEMORY_MP = null;
@@ -161,8 +161,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           const session = await getSession();
           const domain = extractDomain(origin);
-          const account = session.vault?.sites?.filter(site => extractDomain(site.url) === domain)
-            .flatMap(site => site.accounts || []).find(account => account.user === pending.user);
+          const account = session.vault?.sites?.filter(site => siteMatchesDomain(site, domain))
+            .flatMap(site => site.accounts || []).find(account => sameUser(account.user, pending.user));
           sendResponse({ pending: account?.pass !== pending.pass, user: pending.user,
             domain, update: Boolean(account), isLocked: !session.isUnlocked });
           return;
@@ -315,14 +315,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const allAccounts = [];
 
           for (const site of session.vault.sites || []) {
-            const siteDomain = extractDomain(site.url || site.name);
-            const matchesDomain =
-              siteDomain && targetDomain &&
-              (siteDomain === targetDomain ||
-               targetDomain.endsWith('.' + siteDomain) ||
-               siteDomain.endsWith('.' + targetDomain) ||
-               site.name.toLowerCase().includes(targetDomain) ||
-               targetDomain.includes(site.name.toLowerCase()));
+            // Strict host matching: no substring/brand matches (x.com must not match netflix.com)
+            const matchesDomain = siteMatchesDomain(site, targetDomain);
 
             if (Array.isArray(site.accounts)) {
               for (const acc of site.accounts) {
@@ -379,10 +373,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const domain = extractDomain(siteUrl || siteName);
 
           // Find or create site
-          let site = vault.sites.find(s => {
-            const d = extractDomain(s.url || s.name);
-            return d === domain || s.name.toLowerCase() === siteName.toLowerCase();
-          });
+          // Same matching as autofill, so a password change updates the existing site instead of a duplicate
+          let site = vault.sites.find(s => siteMatchesDomain(s, domain)) ||
+            vault.sites.find(s => String(s.name || '').toLowerCase() === String(siteName || '').toLowerCase());
 
           if (!site) {
             site = {
@@ -395,11 +388,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
 
           // Check if account with same username exists
-          let acc = site.accounts.find(a => a.user === user);
+          if (!Array.isArray(site.accounts)) site.accounts = [];
+          let acc = site.accounts.find(a => sameUser(a.user, user));
           if (acc) {
             acc.pass = pass;
             if (notes) acc.notes = notes;
             acc.updated = Date.now();
+            acc.lastModified = acc.updated;
           } else {
             site.accounts.push({
               id: Date.now().toString() + Math.random().toString(36).slice(2),
@@ -423,6 +418,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           IN_MEMORY_VAULT = vault;
           if (sender.tab) await chrome.storage.session.remove(captureKey(sender));
           sendResponse({ success: true, siteId: site.id });
+          break;
+        }
+
+        case 'OPEN_POPUP': {
+          // "Unlock" button in the in-page dropdown (Chrome 127+); falls back to an instruction.
+          try {
+            await chrome.action.openPopup();
+            sendResponse({ success: true });
+          } catch (_) {
+            sendResponse({ success: false });
+          }
           break;
         }
 

@@ -1,5 +1,26 @@
 # Android releases
 
+## 1.3.0 (versionCode 7) - 2026-11-04
+
+Android:
+- Better app and site recognition. A site's URL field can hold several URLs, and a site without a URL whose name is a domain now matches. Parent domains match their subdomain logins. Well-known apps whose package name differs from their brand (for example Twitter/X, Gmail, TikTok) are recognized. Browsers are never matched by their own package name.
+- Matching stays strict on purpose. Sibling subdomains, substrings (`x.com` against `netflix.com`), shared hosting (`alice.github.io` against `bob.github.io`) and brand-only names on the web (`Facebook` against `facebook.xyz`) do not match.
+- The app remembers which account you pick for an app or website, so the next request fills it automatically.
+- When matching accounts appear, a "ReWord — حساب آخر" entry still lets you choose any account in the vault. The chooser lists matching accounts first, marked ★.
+- A save first pulls the newest cloud vault, so edits from other devices are not overwritten. The same username with different case or spacing updates the existing account. Password-only screens update the site's single account instead of adding a nameless one. Saving an unchanged password no longer rewrites the vault.
+- Browser compatibility mode is declared for Chrome, Edge, Brave, Opera, Samsung Internet, Vivaldi, DuckDuckGo and other browsers.
+- The vault screen refreshes when the autofill service saves or updates an account.
+
+Chrome extension 1.3.0:
+- The in-field ReWord button no longer disappears on floating-label, overlay or `pointer-events` layouts. It uses fixed positioning attached to `<html>` and follows scrolling inside inner containers.
+- Clicking into a login field opens that site's accounts, but only on real user focus, only in the top frame, and only when the vault is unlocked and has matches. A locked dropdown offers a "فتح الخزينة" button.
+- Detection of saved and updated credentials uses the same strict domain matching as autofill. A password change on `accounts.example.com` now updates the account saved for `example.com` instead of creating a duplicate site. Username comparison ignores case and surrounding spaces.
+- Security: every fill, save and search handler requires a trusted user event. Vault text in the dropdown is HTML-escaped. Only the current site's accounts are written into the page; other sites appear only after the user types a search.
+
+Validation: `testDebugUnitTest assembleDebug lintDebug` passed (25 tests, 0 failures, 0 lint errors). The extension suite `node --test extension/tests/autofill.test.cjs` passed 9 of 9 tests. The standard APK was installed and launched on an Android emulator (Pixel_10 AVD), and the ReWord autofill service registered. Biometric fill and save on a physical phone were not tested.
+
+Signing: both APKs are debug-signed on a different machine from 1.2.3, so `ReWord-v1.3.0.apk` cannot update an existing 1.2.x install in place. See `artifacts/INSTALL-v1.3.0.md`.
+
 ## 1.2.3 (versionCode 6) - 2026-10-31
 
 - Capture login and registration credentials through Android's native save prompt.
