@@ -91,7 +91,29 @@ function generatePassword(len = 16) {
 }
 
 // Initialize Popup
+// Version label + one-time "updated" notice (set by background.js on chrome.runtime.onInstalled)
+async function showVersionInfo() {
+  const version = chrome.runtime.getManifest().version;
+  const versionEl = document.getElementById('ext-version');
+  if (versionEl) versionEl.textContent = `ReWord v${version}`;
+  const { updateNotice } = await chrome.storage.local.get('updateNotice');
+  if (!updateNotice) return;
+  const banner = document.getElementById('update-banner');
+  document.getElementById('update-banner-text').textContent =
+    `تم تحديث الإضافة إلى الإصدار ${updateNotice.to}` +
+    (updateNotice.from ? ` (من ${updateNotice.from})` : '') +
+    ' ✓ — أعد تحميل الصفحات المفتوحة لتعمل التحديثات عليها.';
+  banner.hidden = false;
+  document.getElementById('btn-dismiss-update').addEventListener('click', async () => {
+    banner.hidden = true;
+    await chrome.storage.local.remove('updateNotice');
+  });
+  // Clear the toolbar badge now that the user has seen the notice
+  chrome.action.setBadgeText({ text: '' });
+}
+
 async function init() {
+  showVersionInfo().catch(() => {});
   // Get active tab info
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

@@ -43,7 +43,7 @@ function worker() {
     storage: { local: area(local), session: area(session) },
     alarms: { onAlarm: { addListener() {} }, create() {}, async clear() {} },
     tabs: { onRemoved: { addListener() {} }, query(q, callback) { callback([]); } },
-    runtime: { onMessage: { addListener(fn) { listener = fn; } } }
+    runtime: { onMessage: { addListener(fn) { listener = fn; } }, onInstalled: { addListener() {} } }
   };
   vm.runInNewContext(source('background.js').replace(/^import .*;$/m, ''), {
     chrome, console, structuredClone, URL, Date, Math,

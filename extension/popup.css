@@ -76,6 +76,35 @@ body {
   pointer-events: none;
 }
 
+.update-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.update-banner[hidden] { display: none; }
+.update-banner span { flex: 1; }
+.update-banner-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.ext-version {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
 .toast.show {
   transform: translateY(0);
   opacity: 1;

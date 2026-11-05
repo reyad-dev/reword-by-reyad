@@ -26,6 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.reword.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,13 +44,18 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
 
-    val isAutofillEnabled = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val afm = context.getSystemService(AutofillManager::class.java)
-            afm?.hasEnabledAutofillServices() == true
-        } else {
-            false
+    // Re-check on every resume: the user enables the service in system Settings and
+    // returns here, so a value computed once at first composition would stay stale.
+    var isAutofillEnabled by remember { mutableStateOf(checkAutofillEnabled(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAutofillEnabled = checkAutofillEnabled(context)
+            }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -231,6 +239,15 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+private fun checkAutofillEnabled(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    val afm = context.getSystemService(AutofillManager::class.java) ?: return false
+    if (afm.hasEnabledAutofillServices()) return true
+    // Fallback: some OEM builds report false right after switching; read the secure setting directly.
+    val selected = Settings.Secure.getString(context.contentResolver, "autofill_service")
+    return selected?.substringBefore('/') == context.packageName
 }
 
 private fun openAutofillSettings(context: Context) {

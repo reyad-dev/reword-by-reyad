@@ -1,5 +1,17 @@
 # Android releases
 
+## 1.3.1 (versionCode 8) - 2026-11-05
+
+Android:
+- Fixed: Settings showed "خدمة الملء التلقائي غير مفعلة" after ReWord had been selected as the autofill service. The status was read once when the screen opened, so returning from system settings showed the old value. It is now re-checked on every resume, with a fallback that reads the selected service from `Settings.Secure` for OEM builds that report the change late.
+
+Chrome extension 1.3.1:
+- After an update, a green **NEW** badge appears on the toolbar icon and the popup shows "تم تحديث الإضافة إلى الإصدار …" with a reminder to refresh open pages. The installed version is shown in the popup footer.
+
+Validation: `testDebugUnitTest assembleDebug lintDebug` passed. The extension suite passed 9 of 9 tests. The autofill status fix was not tested on a physical phone.
+
+Distribution: only the standard `ReWord.apk` (versionCode 8) is published. It is signed with the same certificate as 1.3.0, so 1.3.0 installs update in place. See `artifacts/INSTALL-v1.3.1.md`.
+
 ## 1.3.0 (versionCode 7) - 2026-11-04
 
 Android:
@@ -19,7 +31,7 @@ Chrome extension 1.3.0:
 
 Validation: `testDebugUnitTest assembleDebug lintDebug` passed (25 tests, 0 failures, 0 lint errors). The extension suite `node --test extension/tests/autofill.test.cjs` passed 9 of 9 tests. The standard APK was installed and launched on an Android emulator (Pixel_10 AVD), and the ReWord autofill service registered. Biometric fill and save on a physical phone were not tested.
 
-Distribution: only the standard `ReWord.apk` (versionCode 7) is published. Its certificate differs from the published 1.2.1 and 1.2.2 APKs and the documented 1.2.3 certificate. Those installs require a verified vault backup/sync before replacement; same-certificate installs can update in place. See `artifacts/INSTALL-v1.3.0.md`. Older entries below are historical records; their APK downloads have been retired.
+Distribution: `ReWord.apk` (versionCode 7) was published; it has been replaced by 1.3.1. Its certificate differs from the published 1.2.1 and 1.2.2 APKs and the documented 1.2.3 certificate. Those installs require a verified vault backup/sync before replacement; same-certificate installs can update in place. Older entries below are historical records; their APK downloads have been retired.
 
 ## 1.2.3 (versionCode 6) - 2026-10-31
 

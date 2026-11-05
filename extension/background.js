@@ -20,6 +20,17 @@ chrome.tabs.onRemoved.addListener(async tabId => {
   if (keys.length) await chrome.storage.session.remove(keys);
 });
 
+// Surface extension updates: badge on the toolbar icon + banner in the popup.
+// "Reload" in chrome://extensions (or Chrome auto-update) fires this with reason "update".
+chrome.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
+  if (reason !== 'update') return;
+  const to = chrome.runtime.getManifest().version;
+  if (previousVersion === to) return;
+  await chrome.storage.local.set({ updateNotice: { from: previousVersion || '', to } });
+  await chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
+  await chrome.action.setBadgeText({ text: 'NEW' });
+});
+
 // Initialize alarms for auto-lock
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'reword-auto-lock') {
