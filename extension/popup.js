@@ -53,6 +53,17 @@ const genLenLabel = document.getElementById('gen-len-label');
 const btnRegenerate = document.getElementById('btn-regenerate');
 
 const toastEl = document.getElementById('toast');
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+// Image errors don't bubble; capture them without inline handlers (Manifest V3 CSP).
+document.addEventListener('error', event => {
+  const image = event.target;
+  if (!image.matches?.('img.site-fav-img')) return;
+  image.style.display = 'none';
+  const fallback = image.nextElementSibling;
+  if (fallback?.classList.contains('site-fav-fallback')) fallback.style.display = 'flex';
+}, true);
 
 // Utility: Show Screen
 function showScreen(screen) {
@@ -192,7 +203,7 @@ function renderCurrentSiteMatches(matches) {
         document.getElementById('add-site-url').value = CURRENT_TAB?.url || '';
         document.getElementById('modal-title').textContent = 'إضافة حساب جديد';
         modalAdd.classList.add('active');
-        document.getElementById('add-site-user').focus();
+        addUser.focus();
       });
     }
     return;
@@ -208,16 +219,16 @@ function renderCurrentSiteMatches(matches) {
     card.innerHTML = `
       <div class="match-left">
         <div class="site-fav-box">
-          ${fav ? `<img src="${fav}" class="site-fav-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" alt="">` : ''}
-          <span class="site-fav-fallback" style="${fav ? 'display:none;' : 'display:flex;'}">${initial}</span>
+          ${fav ? `<img src="${fav}" class="site-fav-img" alt="">` : ''}
+          <span class="site-fav-fallback" style="${fav ? 'display:none;' : 'display:flex;'}">${escapeHtml(initial)}</span>
         </div>
         <div class="match-user-meta">
-          <div class="match-user" title="${acc.user}">${acc.user}</div>
-          <div class="match-sub">${acc.siteName || CURRENT_DOMAIN}</div>
+          <div class="match-user" title="${escapeHtml(acc.user)}">${escapeHtml(acc.user)}</div>
+          <div class="match-sub">${escapeHtml(acc.siteName || CURRENT_DOMAIN)}</div>
         </div>
       </div>
       <div class="match-actions">
-        <button class="btn-fill" data-user="${acc.user}" title="ملء تلقائي للصفحة">تعبئة ⚡</button>
+        <button class="btn-fill" title="ملء تلقائي للصفحة">تعبئة ⚡</button>
         <button class="mini-btn btn-copy-user" title="نسخ اسم المستخدم">👤</button>
         <button class="mini-btn btn-copy-pass" title="نسخ كلمة المرور">🔑</button>
       </div>
@@ -281,12 +292,12 @@ function renderAllSites() {
         <div class="site-name-row">
           <div class="site-row-left">
             <div class="site-fav-box">
-              ${fav ? `<img src="${fav}" class="site-fav-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" alt="">` : ''}
-              <span class="site-fav-fallback" style="${fav ? 'display:none;' : 'display:flex;'}">${initial}</span>
+              ${fav ? `<img src="${fav}" class="site-fav-img" alt="">` : ''}
+              <span class="site-fav-fallback" style="${fav ? 'display:none;' : 'display:flex;'}">${escapeHtml(initial)}</span>
             </div>
             <div class="site-meta">
-              <span class="site-title">${site.name || 'موقع بدون اسم'}</span>
-              ${firstUrl ? `<span class="site-url-sub">${firstUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '')}</span>` : ''}
+              <span class="site-title">${escapeHtml(site.name || 'موقع بدون اسم')}</span>
+              ${firstUrl ? `<span class="site-url-sub">${escapeHtml(firstUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, ''))}</span>` : ''}
             </div>
           </div>
           <span class="site-acc-count">${accountsCount} حساب ▾</span>
@@ -294,7 +305,7 @@ function renderAllSites() {
         <div class="site-accounts-container" style="display:none;margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);">
           ${(site.accounts || []).map((acc, aIdx) => `
             <div class="match-card" style="margin-top:4px;">
-              <div class="match-user" title="${acc.user}">${acc.user}</div>
+              <div class="match-user" title="${escapeHtml(acc.user)}">${escapeHtml(acc.user)}</div>
               <div class="match-actions">
                 <button class="mini-btn copy-site-user" data-acc="${aIdx}" title="نسخ المستخدم">👤</button>
                 <button class="mini-btn copy-site-pass" data-acc="${aIdx}" title="نسخ كلمة المرور">🔑</button>

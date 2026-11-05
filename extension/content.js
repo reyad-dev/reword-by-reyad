@@ -94,6 +94,7 @@
   function removeBadge(field) {
     const entry = activeBadges.get(field);
     if (entry) {
+      if (activeDropdown?.__field === field) closeDropdown();
       entry.destroy();
       activeBadges.delete(field);
     }
@@ -194,11 +195,29 @@
       const rect = inputField.getBoundingClientRect();
       const size = Math.max(18, Math.min(24, rect.height - 6));
       const isRtl = window.getComputedStyle(inputField).direction === 'rtl';
+      const top = rect.top + (rect.height - size) / 2;
+      const left = isRtl ? rect.left + 6 : rect.right - size - 6;
+      // Don't leave the shield floating over other content when its field is clipped.
+      let visible = top >= 0 && left >= 0 && top + size <= window.innerHeight && left + size <= window.innerWidth;
+      let parent = inputField.parentElement || inputField.getRootNode()?.host;
+      while (visible && parent) {
+        const style = window.getComputedStyle(parent);
+        const bounds = parent.getBoundingClientRect();
+        const clips = value => /^(auto|scroll|hidden|clip)$/.test(value);
+        if (clips(style.overflowY || style.overflow) && (top < bounds.top || top + size > bounds.bottom)) visible = false;
+        if (clips(style.overflowX || style.overflow) && (left < bounds.left || left + size > bounds.right)) visible = false;
+        parent = parent.parentElement || parent.getRootNode()?.host;
+      }
+      if (!visible) {
+        btn.style.setProperty('display', 'none', 'important');
+        if (activeDropdown?.__field === inputField) closeDropdown();
+        return;
+      }
       btn.style.setProperty('display', 'flex', 'important');
       btn.style.setProperty('width', `${size}px`, 'important');
       btn.style.setProperty('height', `${size}px`, 'important');
-      btn.style.setProperty('top', `${rect.top + (rect.height - size) / 2}px`, 'important');
-      btn.style.setProperty('left', `${isRtl ? rect.left + 6 : rect.right - size - 6}px`, 'important');
+      btn.style.setProperty('top', `${top}px`, 'important');
+      btn.style.setProperty('left', `${left}px`, 'important');
       if (activeDropdown?.__field === inputField) positionDropdown(activeDropdown, inputField);
     }
 

@@ -171,3 +171,81 @@ test('parallel confirmed saves do not overwrite another account', async () => {
   ]);
   assert.deepEqual(JSON.parse(w.local.encVault).sites[0].accounts.map(a => a.user).sort(), ['alice', 'bob']);
 });
+
+test('shield follows page and container scrolling immediately, hides when clipped, then returns', () => {
+  const p = page('<div id="panel" style="overflow:auto"><input type="email"></div>');
+  try {
+    const field = p.win.document.querySelector('input');
+    const panel = p.win.document.getElementById('panel');
+    const badge = p.win.document.querySelector('.reword-autofill-btn');
+    let top = 120;
+    field.getBoundingClientRect = () => ({ width: 300, height: 40, left: 20, right: 320, top, bottom: top + 40 });
+    panel.getBoundingClientRect = () => ({ width: 400, height: 300, left: 0, right: 400, top: 50, bottom: 350 });
+    p.win.dispatchEvent(new p.win.Event('scroll'));
+    assert.equal(badge.style.top, '128px');
+    assert.equal(badge.style.left, '290px');
+    top = 80;
+    panel.dispatchEvent(new p.win.Event('scroll'));
+    assert.equal(badge.style.top, '88px');
+    top = 20;
+    panel.dispatchEvent(new p.win.Event('scroll'));
+    assert.equal(badge.style.display, 'none');
+    top = 100;
+    panel.dispatchEvent(new p.win.Event('scroll'));
+    assert.equal(badge.style.display, 'flex');
+    assert.equal(badge.style.top, '108px');
+    top = -40;
+    p.win.dispatchEvent(new p.win.Event('scroll'));
+    assert.equal(badge.style.display, 'none');
+    // Geometry must never be animated: a transition on top/left causes scroll drift.
+    const rule = source('content.css').match(/\.reword-autofill-btn\s*\{([^}]+)\}/)[1];
+    const transition = rule.match(/transition:\s*([^;]+)/)[1];
+    assert.doesNotMatch(transition, /\b(all|top|left|width|height)\b/);
+  } finally { p.dom.window.close(); }
+});
+
+function popup(sites = []) {
+  const dom = new JSDOM(source('popup.html'), { url: 'https://extension.test/popup.html', runScripts: 'outside-only', pretendToBeVisual: true });
+  const win = dom.window;
+  win.chrome = {
+    runtime: { lastError: null, getManifest: () => ({ version: '1.3.2' }), sendMessage(msg, cb) {
+      cb?.(msg.action === 'GET_ALL_SITES' ? { sites } : { isUnlocked: true, matches: [] });
+    } },
+    storage: { local: { async get() { return {}; } } },
+    tabs: { async query() { return [{ id: 1, url: 'https://example.test/login' }]; } }
+  };
+  win.eval(source('popup.js').replace(/^import .*;$/m, '') + '\n;window.renderMatches = renderCurrentSiteMatches; window.renderSites = renderAllSites;');
+  return { dom, win };
+}
+
+test('popup quick add opens the modal and focuses the existing username field', () => {
+  const p = popup();
+  try {
+    p.win.renderMatches([]);
+    p.win.document.getElementById('btn-quick-add-cur').click();
+    assert.equal(p.win.document.getElementById('modal-add').classList.contains('active'), true);
+    assert.equal(p.win.document.activeElement.id, 'add-user');
+  } finally { p.dom.window.close(); }
+});
+
+test('popup favicon fallback works without inline handlers and treats vault data as text', () => {
+  const hostile = '\"><img src=x onerror="alert(1)">';
+  const p = popup([{ name: hostile, url: 'https://example.test', accounts: [{ user: hostile, pass: 'test' }] }]);
+  try {
+    p.win.renderMatches([{ siteName: hostile, siteUrl: 'https://example.test', user: hostile }]);
+    p.win.renderSites();
+    const doc = p.win.document;
+    assert.equal(doc.querySelector('.match-user').textContent, hostile);
+    assert.equal(doc.querySelector('.site-title').textContent, hostile);
+    for (const element of doc.querySelectorAll('*')) {
+      assert.equal(Array.from(element.attributes).some(attr => /^on/i.test(attr.name)), false);
+    }
+    const images = doc.querySelectorAll('.site-fav-img');
+    assert.equal(images.length, 2);
+    for (const image of images) {
+      image.dispatchEvent(new p.win.Event('error'));
+      assert.equal(image.style.display, 'none');
+      assert.equal(image.nextElementSibling.style.display, 'flex');
+    }
+  } finally { p.dom.window.close(); }
+});
