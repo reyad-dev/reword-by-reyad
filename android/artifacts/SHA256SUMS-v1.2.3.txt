@@ -1,2 +1,0 @@
-fd00ac7116eba9a39acb59bdc693de4a0cfb30479564ad926610ad757c6a6bc6  ReWord-v1.2.3.apk
-12e24545e0a722a413f55940456b335231d3d9273a7af69cb6dc83cd85da854d  ReWord-v1.2.3-autofill-test.apk

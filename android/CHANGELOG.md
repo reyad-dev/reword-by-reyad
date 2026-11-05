@@ -19,7 +19,7 @@ Chrome extension 1.3.0:
 
 Validation: `testDebugUnitTest assembleDebug lintDebug` passed (25 tests, 0 failures, 0 lint errors). The extension suite `node --test extension/tests/autofill.test.cjs` passed 9 of 9 tests. The standard APK was installed and launched on an Android emulator (Pixel_10 AVD), and the ReWord autofill service registered. Biometric fill and save on a physical phone were not tested.
 
-Signing: both APKs are debug-signed on a different machine from 1.2.3, so `ReWord-v1.3.0.apk` cannot update an existing 1.2.x install in place. See `artifacts/INSTALL-v1.3.0.md`.
+Distribution: only the standard `ReWord.apk` (versionCode 7) is published. Its certificate differs from the published 1.2.1 and 1.2.2 APKs and the documented 1.2.3 certificate. Those installs require a verified vault backup/sync before replacement; same-certificate installs can update in place. See `artifacts/INSTALL-v1.3.0.md`. Older entries below are historical records; their APK downloads have been retired.
 
 ## 1.2.3 (versionCode 6) - 2026-10-31
 
