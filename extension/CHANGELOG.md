@@ -6,7 +6,7 @@
 - Site/account counter in the header, category badges on sites and a category filter row.
 - Category picker in the add/edit form: choose existing categories or add a new one.
 - Show/hide password eye now switches icon and works in the login and add forms.
-- No "save?" prompt for logins already saved, even while the vault is locked. Uses a salted 24-bit fingerprint index built when the vault is unlocked, so unlock once after updating.
+- No "save?" prompt for logins already saved, even while the vault is locked. Uses a salted 24-bit fingerprint index built when the vault is unlocked and kept in memory only (chrome.storage.session, never on disk), so after each browser start unlock once.
 
 ## تحديث الإضافة
 

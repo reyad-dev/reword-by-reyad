@@ -12,7 +12,7 @@ Android:
 
 Chrome extension 1.3.3:
 - Compact popup, site/account counter, category chips and filter, open-site button, notes, edit form, category picker, working show/hide password eye.
-- No "save?" prompt for logins already in the vault, even while the vault is locked (after it has been unlocked once with 1.3.3).
+- No "save?" prompt for logins already in the vault, even while the vault is locked (after it has been unlocked once since the browser started; the index is memory-only).
 
 Web app: category picker (existing categories as chips) in the add/edit site form.
 

@@ -68,8 +68,9 @@ async function getSession() {
 
 // ---- Known-credential index -------------------------------------------------------------
 // Lets the page skip the "save?" prompt for credentials that are already in the vault even while
-// it is locked. Each entry is a 24-bit slice of SHA-256(secret salt | host | user | password):
-// enough to recognise an exact match, far too short to confirm a guessed password offline.
+// it is locked. Each entry is a 24-bit slice of SHA-256(random salt | host | user | password).
+// Salt and index live only in chrome.storage.session (memory, trusted contexts, never written to
+// disk), survive an auto-lock, and disappear when the browser closes.
 function hostAndParents(host) {
   const parts = String(host || '').split('.').filter(Boolean);
   const out = [];
@@ -85,10 +86,11 @@ async function credentialFingerprint(salt, host, user, pass) {
 
 async function indexCredentials(vault) {
   try {
-    let { credSalt } = await chrome.storage.local.get('credSalt');
+    // Earlier 1.3.3 builds kept these on disk; remove them.
+    chrome.storage.local.remove(['credSalt', 'credIndex']).catch(() => {});
+    let { credSalt } = await chrome.storage.session.get('credSalt');
     if (!credSalt) {
       credSalt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-      await chrome.storage.local.set({ credSalt });
     }
     const fps = new Set();
     for (const site of vault?.sites || []) {
@@ -100,14 +102,14 @@ async function indexCredentials(vault) {
         for (const h of keys) fps.add(await credentialFingerprint(credSalt, h, acc.user, acc.pass));
       }
     }
-    await chrome.storage.local.set({ credIndex: [...fps] });
+    await chrome.storage.session.set({ credSalt, credIndex: [...fps] });
   } catch (err) {
     console.warn('Credential index failed:', err);
   }
 }
 
 async function credentialKnown(domain, user, pass) {
-  const { credSalt, credIndex } = await chrome.storage.local.get(['credSalt', 'credIndex']);
+  const { credSalt, credIndex } = await chrome.storage.session.get(['credSalt', 'credIndex']);
   if (!credSalt || !Array.isArray(credIndex) || !credIndex.length) return false;
   const index = new Set(credIndex);
   for (const h of hostAndParents(domain)) {
@@ -135,7 +137,10 @@ async function lockVault() {
   IN_MEMORY_VAULT = null;
   IN_MEMORY_MP = null;
   try {
+    // Keep only the known-credential index (no secrets) across the lock.
+    const keep = await chrome.storage.session.get(['credSalt', 'credIndex']);
     await chrome.storage.session.clear();
+    if (keep.credSalt) await chrome.storage.session.set(keep);
     await chrome.alarms.clear('reword-auto-lock');
   } catch {}
   notifyAllTabs('VAULT_LOCKED');
