@@ -37,13 +37,14 @@ jobs:
 
       - name: Prepare APK artifact
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk ReWord.apk
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts)
+          cp android/app/build/outputs/apk/debug/app-debug.apk "ReWord-v${VERSION}.apk"
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ReWord-APK
-          path: ReWord.apk
+          path: ReWord-v*.apk
           if-no-files-found: error
 
       - name: Build side-by-side autofill test APK

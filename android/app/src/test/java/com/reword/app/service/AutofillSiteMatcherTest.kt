@@ -69,4 +69,14 @@ class AutofillSiteMatcherTest {
         assertTrue(AutofillSiteMatcher.find(Vault(listOf(captured)), null, "com.unrelated.android").isEmpty())
         assertTrue(AutofillSiteMatcher.find(Vault(listOf(captured)), "com.example.android", "com.example.android").isEmpty())
     }
+
+    @Test fun appRecognisedByLauncherLabelOrBrandPrefix() {
+        val reverso = Site(id = "r", name = "account.reverso.net", url = "account.reverso.net")
+        val cf = Site(id = "c", name = "cloudflare", url = "cloudflare.com")
+        val v = Vault(listOf(reverso, cf))
+        assertEquals(listOf(reverso), AutofillSiteMatcher.find(v, null, "com.softissimo.context", appLabel = "Reverso Context"))
+        assertEquals(listOf(cf), AutofillSiteMatcher.find(v, null, "com.cloudflare.onedotonedotonedotone"))
+        assertEquals(listOf(cf), AutofillSiteMatcher.find(v, null, "com.cloudflareapp.dash"))
+        assertTrue(AutofillSiteMatcher.find(v, null, "com.unrelated.app", appLabel = "Notes").isEmpty())
+    }
 }

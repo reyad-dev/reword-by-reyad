@@ -66,4 +66,21 @@ class CredentialSaverTest {
         assertEquals(2, sites.size())
         assertEquals("original-test-pass", sites[0].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
     }
+
+    @Test fun editorAddsAndEditsAccountsWithNotes() {
+        val root = JsonParser.parseString("""{"sites":[{"id":"s","name":"Ex","url":"https://ex.test","custom":1,
+          "accounts":[{"id":"a","user":"u","pass":"p","notes":"","otp":"keep"}]}]}""").asJsonObject
+        CredentialSaver.applyEdit(root, CredentialSaver.AccountEdit("s", "a", "Ex", "https://ex.test", "u2", "p2", "backup codes in drawer"))
+        val acc = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject
+        assertEquals("u2", acc.get("user").asString)
+        assertEquals("backup codes in drawer", acc.get("notes").asString)
+        assertEquals("keep", acc.get("otp").asString)
+        CredentialSaver.applyEdit(root, CredentialSaver.AccountEdit(null, null, "", "new.test", "me", "pw", "n"))
+        val sites = root.getAsJsonArray("sites")
+        assertEquals(2, sites.size())
+        assertEquals("https://new.test", sites[1].asJsonObject.get("url").asString)
+        assertEquals("new.test", sites[1].asJsonObject.get("name").asString)
+        CredentialSaver.removeAccount(root, "s", "a")
+        assertEquals(0, root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts").size())
+    }
 }

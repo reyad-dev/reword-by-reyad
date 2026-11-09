@@ -54,7 +54,7 @@ async function getSession() {
       const local = await chrome.storage.local.get(['encVault']);
       if (local?.encVault) {
         const vault = await CV.dec(local.encVault, session.mp);
-        IN_MEMORY_VAULT = vault;
+        setVault(vault);
         IN_MEMORY_MP = session.mp;
         resetAutoLock();
         return { vault, mp: session.mp, isUnlocked: true };
@@ -64,6 +64,71 @@ async function getSession() {
     console.warn('Session restore failed:', err);
   }
   return { vault: null, mp: null, isUnlocked: false };
+}
+
+// ---- Known-credential index -------------------------------------------------------------
+// Lets the page skip the "save?" prompt for credentials that are already in the vault even while
+// it is locked. Each entry is a 24-bit slice of SHA-256(secret salt | host | user | password):
+// enough to recognise an exact match, far too short to confirm a guessed password offline.
+function hostAndParents(host) {
+  const parts = String(host || '').split('.').filter(Boolean);
+  const out = [];
+  for (let i = 0; i <= parts.length - 2; i++) out.push(parts.slice(i).join('.'));
+  return out;
+}
+
+async function credentialFingerprint(salt, host, user, pass) {
+  const data = new TextEncoder().encode(salt + '|' + host + '|' + String(user || '').trim().toLowerCase() + '|' + pass);
+  const buf = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+  return Array.from(buf.slice(0, 3)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function indexCredentials(vault) {
+  try {
+    let { credSalt } = await chrome.storage.local.get('credSalt');
+    if (!credSalt) {
+      credSalt = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+      await chrome.storage.local.set({ credSalt });
+    }
+    const fps = new Set();
+    for (const site of vault?.sites || []) {
+      const hosts = String(site.url || '').split(/[,;s]+/).map(u => extractDomain(u)).filter(h => h.includes('.'));
+      if (!hosts.length && String(site.name || '').includes('.')) hosts.push(extractDomain(site.name));
+      const keys = new Set(hosts.flatMap(hostAndParents));
+      for (const acc of site.accounts || []) {
+        if (!acc?.pass) continue;
+        for (const h of keys) fps.add(await credentialFingerprint(credSalt, h, acc.user, acc.pass));
+      }
+    }
+    await chrome.storage.local.set({ credIndex: [...fps] });
+  } catch (err) {
+    console.warn('Credential index failed:', err);
+  }
+}
+
+async function credentialKnown(domain, user, pass) {
+  const { credSalt, credIndex } = await chrome.storage.local.get(['credSalt', 'credIndex']);
+  if (!credSalt || !Array.isArray(credIndex) || !credIndex.length) return false;
+  const index = new Set(credIndex);
+  for (const h of hostAndParents(domain)) {
+    if (index.has(await credentialFingerprint(credSalt, h, user, pass))) return true;
+  }
+  return false;
+}
+
+/** "Work, , social,work" -> "Work, social" (site tags are a comma-separated string, shared with web/Android). */
+function cleanTags(tags) {
+  const seen = new Set();
+  return String(tags || '').split(',').map(t => t.trim()).filter(t => {
+    const k = t.toLowerCase();
+    if (!t || seen.has(k)) return false;
+    seen.add(k); return true;
+  }).join(', ');
+}
+
+function setVault(vault) {
+  IN_MEMORY_VAULT = vault;
+  indexCredentials(vault);
 }
 
 async function lockVault() {
@@ -126,7 +191,7 @@ function notifyAllTabs(action, data = {}) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     let releaseSave;
-    if (['SAVE_CREDENTIAL', 'CONFIRM_PENDING_CREDENTIAL'].includes(msg.action)) {
+    if (['SAVE_CREDENTIAL', 'CONFIRM_PENDING_CREDENTIAL', 'UPDATE_ACCOUNT'].includes(msg.action)) {
       const previous = saveQueue;
       saveQueue = new Promise(resolve => { releaseSave = resolve; });
       await previous;
@@ -172,10 +237,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           const session = await getSession();
           const domain = extractDomain(origin);
+          if (!session.isUnlocked) {
+            // Locked: no prompt when this exact login is already saved (checked via the fingerprint index).
+            if (await credentialKnown(domain, pending.user, pending.pass)) {
+              await chrome.storage.session.remove(key);
+              sendResponse({ pending: false }); return;
+            }
+            sendResponse({ pending: true, user: pending.user, domain, update: false, isLocked: true });
+            return;
+          }
           const account = session.vault?.sites?.filter(site => siteMatchesDomain(site, domain))
             .flatMap(site => site.accounts || []).find(account => sameUser(account.user, pending.user));
+          if (account?.pass === pending.pass) await chrome.storage.session.remove(key);
           sendResponse({ pending: account?.pass !== pending.pass, user: pending.user,
-            domain, update: Boolean(account), isLocked: !session.isUnlocked });
+            domain, update: Boolean(account), isLocked: false });
           return;
         }
         case 'GET_STATUS': {
@@ -224,7 +299,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           try {
             const vault = await CV.dec(enc, password);
-            IN_MEMORY_VAULT = vault;
+            setVault(vault);
             IN_MEMORY_MP = password;
             await chrome.storage.session.set({ mp: password, isUnlocked: true });
             resetAutoLock();
@@ -252,7 +327,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           try {
             const vault = await CV.dec(cloud.data, password);
-            IN_MEMORY_VAULT = vault;
+            setVault(vault);
             IN_MEMORY_MP = password;
             await chrome.storage.local.set({
               encVault: cloud.data,
@@ -289,7 +364,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await syncPush(enc, syncId, cleanUrl);
           }
 
-          IN_MEMORY_VAULT = newVault;
+          setVault(newVault);
           IN_MEMORY_MP = password;
           await chrome.storage.session.set({ mp: password, isUnlocked: true });
           resetAutoLock();
@@ -398,6 +473,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             vault.sites.push(site);
           }
 
+          // Category chosen in the popup form (page captures never change tags)
+          if (!sender.tab && typeof credential.tags === 'string') site.tags = cleanTags(credential.tags);
+
           // Check if account with same username exists
           if (!Array.isArray(site.accounts)) site.accounts = [];
           let acc = site.accounts.find(a => sameUser(a.user, user));
@@ -412,7 +490,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               user,
               pass,
               notes: notes || '',
-              created: Date.now()
+              created: Date.now(),
+              lastModified: Date.now()
             });
           }
 
@@ -426,8 +505,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             syncPush(enc, local.syncId, local.workerUrl);
           }
 
-          IN_MEMORY_VAULT = vault;
+          setVault(vault);
           if (sender.tab) await chrome.storage.session.remove(captureKey(sender));
+          sendResponse({ success: true, siteId: site.id });
+          break;
+        }
+
+        case 'UPDATE_ACCOUNT': {
+          // Popup-only edit of an existing account; unknown fields on site/account are preserved.
+          if (sender.tab) { sendResponse({ success: false, error: 'invalid_sender' }); return; }
+          const { siteId, accountId } = msg;
+          const session = await getSession();
+          if (!session.isUnlocked || !session.vault || !session.mp) {
+            sendResponse({ success: false, error: 'vault_locked' });
+            return;
+          }
+          if (typeof msg.user !== 'string' || !msg.user || typeof msg.pass !== 'string' || !msg.pass) {
+            sendResponse({ success: false, error: 'missing_credentials' }); return;
+          }
+          const vault = structuredClone(session.vault);
+          const site = (vault.sites || []).find(s => s.id === siteId);
+          const acc = site && Array.isArray(site.accounts) ? site.accounts.find(a => a.id === accountId) : null;
+          if (!acc) { sendResponse({ success: false, error: 'account_not_found' }); return; }
+          if (typeof msg.siteName === 'string' && msg.siteName.trim()) site.name = msg.siteName.trim();
+          if (typeof msg.siteUrl === 'string') site.url = msg.siteUrl.trim();
+          if (typeof msg.tags === 'string') site.tags = cleanTags(msg.tags);
+          acc.user = msg.user;
+          acc.pass = msg.pass;
+          acc.notes = typeof msg.notes === 'string' ? msg.notes : '';
+          acc.updated = Date.now();
+          acc.lastModified = acc.updated;
+
+          const enc = await CV.enc(vault, session.mp);
+          await chrome.storage.local.set({ encVault: enc, vaultTs: Date.now() });
+          const local = await chrome.storage.local.get(['syncId', 'workerUrl']);
+          if (local.syncId && local.workerUrl) {
+            syncPush(enc, local.syncId, local.workerUrl);
+          }
+          setVault(vault);
           sendResponse({ success: true, siteId: site.id });
           break;
         }
@@ -459,7 +574,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const cloudVault = await CV.dec(cloud.data, session.mp);
               const localTs = local.vaultTs || 0;
               if ((cloud.ts || 0) > localTs) {
-                IN_MEMORY_VAULT = cloudVault;
+                setVault(cloudVault);
                 await chrome.storage.local.set({ encVault: cloud.data, vaultTs: cloud.ts });
                 updated = true;
               } else if (localTs > (cloud.ts || 0) && local.encVault) {

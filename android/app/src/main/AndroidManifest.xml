@@ -9,6 +9,18 @@
     <!-- Biometric Authentication (Fingerprint & Face unlock) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Lets autofill read an app's launcher name (to recognise it) and open saved apps from the vault -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ReWordApplication"
         android:allowBackup="false"

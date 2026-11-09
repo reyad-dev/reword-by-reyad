@@ -17,6 +17,7 @@ import com.reword.app.crypto.KeystoreHelper
 import com.reword.app.crypto.SecureStorage
 import com.reword.app.model.Vault
 import com.reword.app.network.SyncRepository
+import com.reword.app.service.CredentialSaver
 import com.reword.app.ui.screens.ConnectScreen
 import com.reword.app.ui.screens.SettingsScreen
 import com.reword.app.ui.screens.VaultScreen
@@ -130,6 +131,27 @@ class MainActivity : FragmentActivity() {
                         },
                         onSettingsClick = {
                             currentScreen = Screen.Settings
+                        },
+                        onSaveAccount = { form, done ->
+                            lifecycleScope.launch {
+                                val ok = try {
+                                    CredentialSaver.upsertAccount(storage, CredentialSaver.AccountEdit(
+                                        form.siteId, form.accountId, form.siteName, form.siteUrl, form.user, form.pass, form.notes, form.tags))
+                                    true
+                                } catch (_: Exception) { false }
+                                Toast.makeText(this@MainActivity, if (ok) "تم الحفظ ✓" else "تعذر الحفظ. افتح الخزنة وحاول مرة أخرى",
+                                    Toast.LENGTH_SHORT).show()
+                                done(ok)
+                            }
+                        },
+                        onDeleteAccount = { site, account ->
+                            lifecycleScope.launch {
+                                val ok = try {
+                                    CredentialSaver.deleteAccount(storage, site.id, account.id)
+                                    true
+                                } catch (_: Exception) { false }
+                                Toast.makeText(this@MainActivity, if (ok) "تم الحذف" else "تعذر الحذف", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     )
                 }

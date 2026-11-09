@@ -233,12 +233,40 @@ function renderDetail() {
 }
 
 /* ── SITE CRUD ── */
+// Category picker under the tags field: existing categories as toggle chips; typing adds a new one.
+function siteTagList(value) {
+  return String(value || '').split(',').map(t => t.trim()).filter(Boolean);
+}
+function renderSiteTagPicker() {
+  const input = document.getElementById('site-tags');
+  const box = document.getElementById('site-tags-picker');
+  if (!input || !box) return;
+  const chosen = siteTagList(input.value).map(t => t.toLowerCase());
+  const all = new Map();
+  (VAULT?.sites || []).forEach(s => siteTagList(s.tags).forEach(t => { if (!all.has(t.toLowerCase())) all.set(t.toLowerCase(), t); }));
+  box.innerHTML = '';
+  [...all.values()].sort((a, b) => a.localeCompare(b, 'ar')).forEach(tag => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tag-pill' + (chosen.includes(tag.toLowerCase()) ? ' active' : '');
+    chip.textContent = tag;
+    chip.onclick = () => {
+      const list = siteTagList(input.value);
+      const i = list.findIndex(t => t.toLowerCase() === tag.toLowerCase());
+      if (i >= 0) list.splice(i, 1); else list.push(tag);
+      input.value = list.join(', ');
+      renderSiteTagPicker();
+    };
+    box.appendChild(chip);
+  });
+}
 function openAddWebsite() {
   EDIT_SITE = null;
   document.getElementById('modal-site-title').textContent = 'إضافة موقع';
   document.getElementById('site-name').value = '';
   document.getElementById('site-url').value = '';
   if (document.getElementById('site-tags')) document.getElementById('site-tags').value = '';
+  renderSiteTagPicker();
   document.getElementById('site-err').classList.remove('show');
   openModal('modal-site');
 }
@@ -249,6 +277,7 @@ function openEditSite(id) {
   document.getElementById('site-name').value = EDIT_SITE.name;
   document.getElementById('site-url').value = EDIT_SITE.url || '';
   if (document.getElementById('site-tags')) document.getElementById('site-tags').value = EDIT_SITE.tags || '';
+  renderSiteTagPicker();
   document.getElementById('site-err').classList.remove('show');
   openModal('modal-site');
 }

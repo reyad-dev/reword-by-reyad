@@ -21,7 +21,7 @@ const server = http.createServer((req, res) => {
     await page.route('https://www.google.com/**', route => route.abort());
     await page.addInitScript(() => {
       window.chrome = {
-        runtime: { lastError: null, getManifest: () => ({ version: '1.3.2' }), sendMessage(msg, cb) {
+        runtime: { lastError: null, getManifest: () => ({ version: '1.3.3' }), sendMessage(msg, cb) {
           if (msg.action === 'GET_STATUS') cb?.({ isUnlocked: true });
           else if (msg.action === 'GET_ALL_SITES') cb?.({ sites: [{ name: 'Example', url: 'https://example.test', accounts: [{ user: 'alice', pass: 'test' }] }] });
           else if (msg.action === 'SYNC_NOW') cb?.({ success: true });

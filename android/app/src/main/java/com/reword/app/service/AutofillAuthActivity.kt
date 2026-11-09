@@ -3,14 +3,17 @@ package com.reword.app.service
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.service.autofill.Dataset
+import android.service.autofill.SaveInfo
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
-import android.view.autofill.AutofillValue
 import android.widget.*
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -26,6 +29,7 @@ import com.reword.app.model.Account
 import com.reword.app.model.Site
 import com.reword.app.model.Vault
 import kotlinx.coroutines.*
+import java.util.Locale
 
 /** Retains ongoing decryption across rotation without blocking the UI thread. */
 class AutofillUnlockModel : ViewModel() {
@@ -38,12 +42,12 @@ class AutofillUnlockModel : ViewModel() {
     var saving = false
         private set
 
-    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String) {
+    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, label: String?) {
         if (saving || saved.value != null) return
         saving = true
         viewModelScope.launch {
             saved.value = try {
-                CredentialSaver.save(storage, domain, app, user, pass)
+                CredentialSaver.save(storage, domain, app, user, pass, label)
                 Result.success(Unit)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { Result.failure(e) }
@@ -76,6 +80,8 @@ class AutofillAuthActivity : FragmentActivity() {
         const val EXTRA_PASS_FIELD = "extra_pass_field"
         const val EXTRA_SAVE = "extra_save"
         const val EXTRA_CHOOSE_ANY = "extra_choose_any"
+        const val EXTRA_APP_LABEL = "extra_app_label"
+        const val EXTRA_SAVE_INFO = "extra_save_info"
     }
 
     private lateinit var storage: SecureStorage
@@ -85,20 +91,24 @@ class AutofillAuthActivity : FragmentActivity() {
     private var phase = "initial"
     private var userField: AutofillId? = null
     private var passField: AutofillId? = null
+    private var saveMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setResult(Activity.RESULT_CANCELED)
-        userField = fieldExtra(EXTRA_USER_FIELD)
-        passField = fieldExtra(EXTRA_PASS_FIELD)
-        if (!intent.getBooleanExtra(EXTRA_SAVE, false) && userField == null && passField == null) { finish(); return }
+        userField = parcelExtra(EXTRA_USER_FIELD, AutofillId::class.java)
+        passField = parcelExtra(EXTRA_PASS_FIELD, AutofillId::class.java)
+        saveMode = intent.getBooleanExtra(EXTRA_SAVE, false)
+        if (!saveMode && userField == null && passField == null) { finish(); return }
         try { storage = SecureStorage(this) } catch (_: Exception) {
             Toast.makeText(this, "تعذر فتح التخزين الآمن. افتح ReWord وحاول مرة أخرى", Toast.LENGTH_LONG).show()
             finish()
             return
         }
         model = ViewModelProvider(this)[AutofillUnlockModel::class.java]
+        // Back / cancel / leaving the screen keeps the ReWord suggestion instead of ending the autofill session.
+        keepSuggestionsOnCancel()
         model.saved.observe(this) { result ->
             if (result == null) return@observe
             Toast.makeText(this, if (result.isSuccess) "تم حفظ بيانات الدخول في ReWord"
@@ -132,6 +142,8 @@ class AutofillAuthActivity : FragmentActivity() {
             dialog?.dismiss()
             outcome.fold(onSuccess = {
                 SecureStorage.setSession(it.vault, it.password)
+                // Now unlocked: backing out should offer the matched accounts directly.
+                keepSuggestionsOnCancel()
                 chooseAccount(it.vault)
             }, onFailure = {
                 Toast.makeText(this, "تعذر فتح الخزنة. تأكد من كلمة المرور الرئيسية", Toast.LENGTH_LONG).show()
@@ -146,11 +158,27 @@ class AutofillAuthActivity : FragmentActivity() {
         if (phase == "password") showMasterPasswordDialog() else startBiometric()
     }
 
-    private fun fieldExtra(name: String): AutofillId? = if (Build.VERSION.SDK_INT >= 33) {
-        intent.getParcelableExtra(name, AutofillId::class.java)
-    } else {
-        @Suppress("DEPRECATION")
-        intent.getParcelableExtra(name)
+    private fun <T : android.os.Parcelable> parcelExtra(name: String, clazz: Class<T>): T? = try {
+        if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(name, clazz)
+        else @Suppress("DEPRECATION") intent.getParcelableExtra(name)
+    } catch (_: Exception) { null }
+
+    private val appLabel: String? get() = intent.getStringExtra(EXTRA_APP_LABEL)
+
+    private fun target() = AutofillResponses.Target(
+        intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE), appLabel,
+        userField, passField, parcelExtra(EXTRA_SAVE_INFO, SaveInfo::class.java)
+    )
+
+    /** Default result: a fresh response so the suggestion re-appears when the user cancels. */
+    private fun keepSuggestionsOnCancel() {
+        if (saveMode) return
+        try {
+            val response = AutofillResponses.keepAliveResponse(this, target(), storage)
+            setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, response))
+        } catch (_: Exception) {
+            setResult(Activity.RESULT_CANCELED)
+        }
     }
 
     private fun startBiometric() {
@@ -227,18 +255,18 @@ class AutofillAuthActivity : FragmentActivity() {
 
     private fun chooseAccount(vault: Vault) {
         if (isFinishing || isDestroyed) return
-        if (intent.getBooleanExtra(EXTRA_SAVE, false)) {
+        if (saveMode) {
             phase = "saving"
             dialog?.dismiss()
             model.save(storage, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE),
-                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty())
+                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty(), appLabel)
             return
         }
         phase = "chooser"
         val domain = intent.getStringExtra(EXTRA_DOMAIN)
         val pkg = intent.getStringExtra(EXTRA_PACKAGE)
         val linkKey = AutofillSiteMatcher.linkKey(domain, pkg)
-        val matches = AutofillSiteMatcher.find(vault, domain, pkg, storage.getLinkedSiteId(linkKey))
+        val matches = AutofillSiteMatcher.find(vault, domain, pkg, storage.getLinkedSiteId(linkKey), appLabel)
         val chooseAny = intent.getBooleanExtra(EXTRA_CHOOSE_ANY, false)
         // Matching sites first (★), then the rest of the vault so any account can still be picked.
         val ordered = matches + vault.sites.filter { it !in matches }
@@ -254,28 +282,73 @@ class AutofillAuthActivity : FragmentActivity() {
             returnDataset(items.first().first, items.first().second)
             return
         }
+        showChooser(items, matches, linkKey)
+    }
+
+    /** Searchable account picker: typing filters by site name, URL or username. */
+    private fun showChooser(items: List<Pair<Site, Account>>, matches: List<Site>, linkKey: String?) {
         dialog?.dismiss()
-        dialog = AlertDialog.Builder(this).setTitle("اختر الحساب للملء التلقائي")
-            .setItems(items.map { (site, account) ->
-                val star = if (site in matches) "★ " else ""
-                "$star${site.name.ifBlank { site.url }} (${account.user.ifBlank { "بدون اسم مستخدم" }})"
-            }.toTypedArray()) { _, which ->
-                // Learn the choice: this app/site is recognized automatically next time.
-                storage.linkSite(linkKey, items[which].first.id)
-                returnDataset(items[which].first, items[which].second)
-            }.setNegativeButton(R.string.biometric_prompt_cancel) { _, _ -> finish() }
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        val labels = items.map { (site, account) ->
+            val star = if (site in matches) "★ " else ""
+            "$star${site.name.ifBlank { site.url }}\n${account.user.ifBlank { "بدون اسم مستخدم" }}"
+        }
+        var visible = items.indices.toList()
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels.toMutableList()) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                (super.getView(position, convertView, parent) as TextView).apply {
+                    setPadding(dp(16), dp(10), dp(16), dp(10))
+                    textSize = 15f
+                }
+        }
+        val search = EditText(this).apply {
+            hint = "ابحث باسم الموقع أو المستخدم…"
+            setSingleLine()
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+        val list = ListView(this).apply {
+            this.adapter = adapter
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360))
+            divider = android.graphics.drawable.ColorDrawable(Color.parseColor("#33475569"))
+            dividerHeight = 1
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.trim()?.lowercase(Locale.ROOT).orEmpty()
+                visible = if (q.isEmpty()) items.indices.toList() else items.indices.filter { i ->
+                    val (site, account) = items[i]
+                    site.name.lowercase(Locale.ROOT).contains(q) || site.url.lowercase(Locale.ROOT).contains(q) ||
+                        account.user.lowercase(Locale.ROOT).contains(q)
+                }
+                adapter.clear()
+                adapter.addAll(visible.map { labels[it] })
+            }
+        })
+        list.setOnItemClickListener { _, _, position, _ ->
+            val (site, account) = items[visible[position]]
+            // Learn the choice: this app/site is recognized automatically next time.
+            storage.linkSite(linkKey, site.id)
+            returnDataset(site, account)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(4), dp(16), 0)
+            addView(search)
+            addView(list)
+        }
+        val title = appLabel?.let { "اختر حساباً لـ $it" } ?: intent.getStringExtra(EXTRA_DOMAIN)?.let { "اختر حساباً لـ $it" }
+            ?: "اختر الحساب للملء التلقائي"
+        dialog = AlertDialog.Builder(this).setTitle(title).setView(container)
+            .setNegativeButton(R.string.biometric_prompt_cancel) { _, _ -> finish() }
             .setOnCancelListener { finish() }.show()
     }
 
     private fun returnDataset(site: Site, account: Account) {
-        val menu = RemoteViews(packageName, R.layout.autofill_dataset_item).apply {
-            setTextViewText(R.id.autofill_title, site.name.ifBlank { site.url })
-            setTextViewText(R.id.autofill_subtitle, account.user)
-        }
-        val builder = Dataset.Builder(menu)
-        userField?.let { builder.setValue(it, AutofillValue.forText(account.user), menu) }
-        passField?.let { builder.setValue(it, AutofillValue.forText(account.pass), menu) }
-        setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, builder.build()))
+        val dataset = AutofillResponses.accountDataset(this, site, account, target())
+        setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset))
         finish()
     }
 

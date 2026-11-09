@@ -41,7 +41,7 @@
       <form id="form-login" class="auth-form">
         <div class="input-group">
           <input type="password" id="login-pass" placeholder="كلمة المرور الرئيسية" autofocus autocomplete="current-password" required>
-          <button type="button" class="btn-toggle-eye" id="btn-toggle-login-pass">👁️</button>
+          <button type="button" class="btn-toggle-eye" id="btn-toggle-login-pass" title="إظهار كلمة المرور" aria-pressed="false"><svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
         </div>
         <div id="login-hint" class="hint-text"></div>
         <button type="submit" id="btn-do-login" class="btn-primary">
@@ -98,6 +98,7 @@
           <div>
             <span class="brand-title">ReWord</span>
             <span id="sync-indicator" class="sync-status ok" title="حالة المزامنة">● سحابي</span>
+            <span id="vault-stats" class="vault-stats"></span>
           </div>
         </div>
         <div class="header-actions">
@@ -116,8 +117,11 @@
       <!-- Active Page Section (Current Tab) -->
       <section class="active-site-section">
         <div class="section-title">
-          <span>الموقع الحالي:</span>
-          <strong id="current-domain-label">-</strong>
+          <div class="current-site-info">
+            <span class="current-site-label">الموقع الحالي:</span>
+            <strong id="current-domain-label">-</strong>
+          </div>
+          <button type="button" class="btn-quick-add" id="btn-quick-add-cur" title="إضافة حساب لهذا الموقع">+ إضافة</button>
         </div>
         <div id="current-site-matches" class="matches-list">
           <!-- Populated dynamically -->
@@ -128,6 +132,7 @@
       <div class="search-box">
         <input type="text" id="vault-search-input" placeholder="🔍 ابحث في كل الحسابات والمواقع...">
       </div>
+      <div id="tag-filter" class="tag-filter" hidden></div>
 
       <!-- All Vault Items -->
       <div id="vault-list" class="vault-items-scroll">
@@ -167,14 +172,23 @@
             <label>كلمة المرور</label>
             <div class="input-with-action">
               <input type="password" id="add-pass" placeholder="كلمة المرور" required>
+              <button type="button" id="btn-toggle-add-pass" class="btn-action-icon" title="إظهار كلمة المرور" aria-pressed="false"><svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
               <button type="button" id="btn-gen-for-input" class="btn-action-icon" title="توليد كلمة مرور قوية">⚡</button>
             </div>
           </div>
           <div class="form-field">
-            <label>ملاحظات (اختياري)</label>
-            <textarea id="add-notes" rows="2" placeholder="ملاحظات سرية إضافية"></textarea>
+            <label>التصنيف (اختياري)</label>
+            <div id="tag-picker" class="tag-picker"></div>
+            <div class="tag-new-row">
+              <input type="text" id="tag-new-input" placeholder="تصنيف جديد…" maxlength="30">
+              <button type="button" id="btn-tag-add" class="btn-tag-add">+ إضافة</button>
+            </div>
           </div>
-          <button type="submit" class="btn-primary" style="margin-top:12px;">حفظ في الخزينة</button>
+          <div class="form-field">
+            <label>ملاحظات (اختياري)</label>
+            <textarea id="add-notes" rows="3" placeholder="ملاحظات إضافية"></textarea>
+          </div>
+          <button type="submit" id="btn-save-credential" class="btn-primary" style="margin-top:12px;">حفظ في الخزينة</button>
         </form>
       </div>
     </div>

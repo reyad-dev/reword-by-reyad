@@ -142,10 +142,15 @@ class SyncRepository(private val storage: SecureStorage) {
             if (active != null) {
                 Result.success(active)
             } else {
-                val jsonString = CryptoEngine.decrypt(localBlob!!, password)
-                val vault = gson.fromJson(jsonString, Vault::class.java)
-                SecureStorage.setSession(vault, password)
-                Result.success(vault)
+                try {
+                    val jsonString = CryptoEngine.decrypt(localBlob!!, password)
+                    val vault = gson.fromJson(jsonString, Vault::class.java)
+                    SecureStorage.setSession(vault, password)
+                    Result.success(vault)
+                } catch (e: Exception) {
+                    // Wrong master password must show an error, not crash the app.
+                    Result.failure(Exception("فشل فك تشفير الخزينة. تأكد من كلمة المرور الرئيسية."))
+                }
             }
         }
     }

@@ -1636,3 +1636,6 @@ textarea.field:focus {
     justify-content: center;
   }
 }
+/* Category picker in the add/edit site form */
+.tag-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag-picker:empty { display: none; }

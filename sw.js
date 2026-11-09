@@ -1,9 +1,9 @@
 const CACHE_NAME = 'reword-v13';
 const ASSETS = [
   './index.html',
-  './style.css?v=13',
+  './style.css?v=14',
   './core.js?v=4',
-  './ui.js?v=8',
+  './ui.js?v=9',
   './manifest.json',
   './repo-icon.svg?v=2'
 ];

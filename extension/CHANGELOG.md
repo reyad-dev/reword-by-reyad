@@ -1,17 +1,19 @@
-# Chrome extension 1.3.2
+# Chrome extension 1.3.3
 
-- Fixed popup CSP violations by replacing inline favicon error handlers with an event listener.
-- Fixed the quick-add account button focusing a field that no longer exists.
-- Removed position/size animation from the autofill shield so it stays aligned with its input during page and container scrolling.
-- Hide the shield and close its account list when clipped outside its input's viewport/container; restore the shield when visible again.
-- Escape vault text in popup templates so account/site text cannot create HTML or inline event handlers.
+- Compact popup layout: slim header, one-line current-site bar, smaller search and rows, taller vault list with a thin dark scrollbar.
+- Added an open-site button (new tab) to site rows and expanded accounts; hidden for androidapp:// and empty URLs.
+- Added notes (ملاحظات) to the add form, an edit-account form and the expanded account view; notes are preserved by captures, edits and sync.
+- Site/account counter in the header, category badges on sites and a category filter row.
+- Category picker in the add/edit form: choose existing categories or add a new one.
+- Show/hide password eye now switches icon and works in the login and add forms.
+- No "save?" prompt for logins already saved, even while the vault is locked. Uses a salted 24-bit fingerprint index built when the vault is unlocked, so unlock once after updating.
 
 ## تحديث الإضافة
 
-1. نزّل `ReWord-Chrome-1.3.2.zip` من إصدار `extension-v1.3.2` وفك الضغط.
+1. نزّل `ReWord-Chrome-1.3.3.zip` من إصدار `v1.3.3` وفك الضغط.
 2. استبدل الملفات داخل نفس مجلد الإضافة الذي حمّلته سابقًا. لا تحذف الإضافة من Chrome.
 3. افتح `chrome://extensions` واضغط زر إعادة التحميل ↻ على بطاقة ReWord.
-4. تأكد أن الإصدار أصبح `1.3.2`، ثم أعد تحميل صفحات المواقع المفتوحة.
+4. تأكد أن الإصدار أصبح `1.3.3`، ثم أعد تحميل صفحات المواقع المفتوحة.
 5. امسح الأخطاء القديمة من صفحة أخطاء الإضافة، ثم افتحها وجرّب إضافة حساب والملء التلقائي.
 
 للتثبيت لأول مرة: فعّل وضع المطوّر، ثم اختر **Load unpacked** وحدد المجلد الذي يحتوي على `manifest.json`.

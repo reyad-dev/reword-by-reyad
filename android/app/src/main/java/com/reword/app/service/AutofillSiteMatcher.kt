@@ -44,17 +44,27 @@ internal object AutofillSiteMatcher {
         "ngrok.io", "ngrok-free.app", "s3.amazonaws.com"
     )
 
+    /** Package segments that say nothing about the brand ("com.example.android.app"). */
+    private val GENERIC_PACKAGE_PARTS = setOf(
+        "com", "org", "net", "io", "app", "apps", "android", "mobile", "client", "main", "prod", "release", "lite", "free", "pro"
+    )
+
+    /** "Cloudflare One" -> "cloudflareone"; keeps letters/digits of any script. */
+    internal fun normalize(raw: String?): String =
+        raw.orEmpty().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+
     fun isBrowser(packageName: String?): Boolean =
         packageName != null && packageName.lowercase(Locale.ROOT) in BROWSER_PACKAGES
 
     /**
      * @param linkedSiteId site the user previously chose for this app/domain (ranked first).
      */
-    fun find(vault: Vault, domain: String?, packageName: String?, linkedSiteId: String? = null): List<Site> {
+    fun find(vault: Vault, domain: String?, packageName: String?, linkedSiteId: String? = null, appLabel: String? = null): List<Site> {
         val sites = vault.sites.orEmpty()
         val domainHost = domain?.let(::host).orEmpty()
         val pkg = packageName.orEmpty().lowercase(Locale.ROOT)
-        val packageParts = pkg.split('.').toSet()
+        val packageParts = pkg.split('.').filter { it !in GENERIC_PACKAGE_PARTS }.toSet()
+        val label = normalize(appLabel)
 
         val matches = sites.filter { site ->
             val url = site.url.orEmpty()
@@ -69,9 +79,20 @@ internal object AutofillSiteMatcher {
                 if (pkg.isBlank() || isBrowser(pkg)) return@filter false
                 val aliases = PACKAGE_ALIASES[pkg].orEmpty()
                 if (siteHosts.any { h -> aliases.any { hostMatches(h, it) } }) return@filter true
-                val name = site.name.orEmpty().trim().lowercase(Locale.ROOT).replace(" ", "")
-                val brands = siteHosts.map { registrable(it).substringBefore('.') }
-                (name.length > 2 && name in packageParts) || brands.any { it.length > 2 && it in packageParts }
+                val name = normalize(site.name)
+                val brands = siteHosts.map { registrable(it).substringBefore('.') }.filter { it.length > 2 }
+                val nameBrand = if (siteHosts.isEmpty() && site.name.orEmpty().contains('.')) {
+                    registrable(host(site.name.orEmpty())).substringBefore('.')
+                } else ""
+                val keys = (brands + name + nameBrand).filter { it.length > 2 }.distinct()
+                keys.any { key ->
+                    key in packageParts ||
+                        // "instagramlite", "netflixapp": brand at the start of a package segment
+                        (key.length >= 4 && packageParts.any { it.length > key.length && it.startsWith(key) }) ||
+                        // App label shown on the launcher ("Cloudflare One", "Reverso")
+                        (label.length > 2 && (label == key || (key.length >= 4 && label.startsWith(key)) ||
+                            (label.length >= 4 && key.startsWith(label))))
+                }
             }
         }
         val linked = linkedSiteId?.takeIf { it.isNotBlank() }?.let { id -> sites.firstOrNull { it.id == id } }

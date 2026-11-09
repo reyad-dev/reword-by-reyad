@@ -9,15 +9,11 @@ import android.os.CancellationSignal
 import android.service.autofill.*
 import android.util.Log
 import android.view.autofill.AutofillId
-import android.view.autofill.AutofillValue
-import android.widget.RemoteViews
 import androidx.autofill.inline.UiVersions
-import com.reword.app.R
 import com.reword.app.crypto.SecureStorage
-import com.reword.app.model.Account
-import com.reword.app.model.Site
 import kotlinx.coroutines.*
 import java.util.UUID
+import java.util.regex.Pattern
 
 class ReWordAutofillService : AutofillService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -60,9 +56,15 @@ class ReWordAutofillService : AutofillService() {
                 }.orEmpty().trim()
                 val pass = related.asReversed().firstNotNullOfOrNull { p ->
                     (p.newPasswordFields + p.passwordFields).firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotEmpty) }
-                } ?: error("Missing password")
+                }
+                // Never store one-time codes / PINs, even if a screen slipped through classification.
+                if (pass == null || CredentialFieldClassifier.looksLikeOneTimeCode(pass) || pass == user) {
+                    callback.onSuccess()
+                    return@launch
+                }
+                val label = AutofillResponses.appLabel(this@ReWordAutofillService, latest.packageName)
                 if (SecureStorage.activeMasterPassword != null) {
-                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass)
+                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass, label)
                     callback.onSuccess()
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     val intent = Intent(this@ReWordAutofillService, AutofillAuthActivity::class.java).apply {
@@ -70,6 +72,7 @@ class ReWordAutofillService : AutofillService() {
                         putExtra(AutofillAuthActivity.EXTRA_SAVE, true)
                         putExtra(AutofillAuthActivity.EXTRA_DOMAIN, latest.webDomain)
                         putExtra(AutofillAuthActivity.EXTRA_PACKAGE, latest.packageName)
+                        putExtra(AutofillAuthActivity.EXTRA_APP_LABEL, label)
                         putExtra("save_user", user)
                         putExtra("save_pass", pass)
                     }
@@ -82,9 +85,14 @@ class ReWordAutofillService : AutofillService() {
         }
     }
 
+    /**
+     * Only offer "Save" for a real password. The validator hides the save prompt when the "password" is a
+     * short numeric code (OTP / PIN) or empty, so typing a verification code never asks to save.
+     */
     private fun saveInfo(parsed: ParsedStructure): SaveInfo? {
         val passwords = (parsed.newPasswordFields + parsed.passwordFields).distinct()
         if (passwords.isEmpty()) {
+            // Username-only first step (e.g. Google: email, then password on the next screen).
             if (parsed.usernameFields.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
             return SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME, parsed.usernameFields.toTypedArray())
                 .setFlags(SaveInfo.FLAG_DELAY_SAVE).build()
@@ -93,6 +101,9 @@ class ReWordAutofillService : AutofillService() {
             arrayOf(passwords.first()))
         val optional = (parsed.usernameFields + passwords.drop(1)).distinct()
         if (optional.isNotEmpty()) builder.setOptionalIds(optional.toTypedArray())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            builder.setValidator(RegexValidator(passwords.first(), NOT_ONE_TIME_CODE))
+        }
         return builder.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE).build()
     }
 
@@ -106,48 +117,36 @@ class ReWordAutofillService : AutofillService() {
         }
         val username = parsed.usernameFields.firstOrNull { it == parsed.focusedId } ?: parsed.usernameFields.firstOrNull()
         val password = parsed.passwordFields.firstOrNull { it == parsed.focusedId } ?: parsed.passwordFields.firstOrNull()
-        if (username == null && password == null) return saveInfo(parsed)?.let { FillResponse.Builder().setSaveInfo(it).build() }
+        val save = saveInfo(parsed)
+        if (username == null && password == null) return save?.let { FillResponse.Builder().setSaveInfo(it).build() }
         // Do not offer credentials while the user is typing into chat/search/OTP fields.
         if (parsed.focusedId != null && parsed.focusedId !in parsed.usernameFields && parsed.focusedId !in parsed.passwordFields) {
-            return if (parsed.focusedId in parsed.newPasswordFields) saveInfo(parsed)?.let {
+            return if (parsed.focusedId in parsed.newPasswordFields) save?.let {
                 FillResponse.Builder().setSaveInfo(it).build()
             } else null
         }
+        val label = AutofillResponses.appLabel(this, parsed.packageName) ?: parsed.windowTitle
+        val target = AutofillResponses.Target(parsed.webDomain, parsed.packageName, label, username, password, save)
         val vault = SecureStorage.activeVault
         val linked = SecureStorage(this).getLinkedSiteId(AutofillSiteMatcher.linkKey(parsed.webDomain, parsed.packageName))
-        val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName, linked) }.orEmpty()
-        if (vault == null || matches.isEmpty()) return buildAuthResponse(parsed, username, password, request)
+        val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName, linked, label) }.orEmpty()
+        if (vault == null || matches.isEmpty()) return buildAuthResponse(target, vault == null, request)
 
         val builder = FillResponse.Builder()
-        saveInfo(parsed)?.let { builder.setSaveInfo(it) }
+        save?.let { builder.setSaveInfo(it) }
         var count = 0
         for (site in matches) {
             for (account in site.accounts) {
-                if (count >= 20) break
-                builder.addDataset(buildDataset(site, account, username, password, request, count++))
+                if (count >= AutofillResponses.MAX_DATASETS) break
+                val inline = createInlinePresentation(request, site.name.ifBlank { site.url }, account.user.ifBlank { "حساب ReWord" }, count)
+                builder.addDataset(AutofillResponses.accountDataset(this, site, account, target, inline))
+                count++
             }
         }
-        if (count == 0) return buildAuthResponse(parsed, username, password, request)
+        if (count == 0) return buildAuthResponse(target, false, request)
         // Matching accounts are shown, but the user can still pick any other account from the vault.
-        builder.addDataset(authDataset(parsed, username, password, request, true,
-            "ReWord — حساب آخر", "البحث في كل حسابات الخزنة", count))
-        return builder.build()
-    }
-
-    private fun presentation(title: String, subtitle: String) = RemoteViews(packageName, R.layout.autofill_dataset_item).apply {
-        setTextViewText(R.id.autofill_title, title)
-        setTextViewText(R.id.autofill_subtitle, subtitle)
-    }
-
-    private fun buildDataset(site: Site, account: Account, username: AutofillId?, password: AutofillId?, request: FillRequest, index: Int): Dataset {
-        val title = site.name.ifBlank { site.url }
-        val subtitle = account.user.ifBlank { "حساب ReWord" }
-        val menu = presentation(title, subtitle)
-        val builder = Dataset.Builder(menu)
-        val inline = createInlinePresentation(request, title, subtitle, index)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) builder.setInlinePresentation(inline)
-        username?.let { builder.setValue(it, AutofillValue.forText(account.user), menu) }
-        password?.let { builder.setValue(it, AutofillValue.forText(account.pass), menu) }
+        builder.addDataset(AutofillResponses.authDataset(this, target, true, "ReWord — حساب آخر", "البحث في كل حسابات الخزنة",
+            createInlinePresentation(request, "ReWord — حساب آخر", "البحث في كل حسابات الخزنة", count)))
         return builder.build()
     }
 
@@ -166,46 +165,21 @@ class ReWordAutofillService : AutofillService() {
         } catch (_: Exception) { null }
     }
 
-    private fun buildAuthResponse(parsed: ParsedStructure, username: AutofillId?, password: AutofillId?, request: FillRequest): FillResponse {
-        val title = if (SecureStorage.activeVault == null) "فتح ReWord 🔒" else "اختيار حساب من ReWord"
-        val subtitle = if (SecureStorage.activeVault == null) "افتح بالبصمة لملء بيانات الدخول" else "اضغط لاختيار حساب للملء التلقائي"
+    private fun buildAuthResponse(target: AutofillResponses.Target, locked: Boolean, request: FillRequest): FillResponse {
+        val title = AutofillResponses.lockedTitle(locked)
+        val subtitle = AutofillResponses.lockedSubtitle(locked)
         return FillResponse.Builder()
-            .addDataset(authDataset(parsed, username, password, request, false, title, subtitle, 0))
-            .apply { saveInfo(parsed)?.let { setSaveInfo(it) } }
+            .addDataset(AutofillResponses.authDataset(this, target, false, title, subtitle,
+                createInlinePresentation(request, title, subtitle, 0)))
+            .apply { target.saveInfo?.let { setSaveInfo(it) } }
             .build()
-    }
-
-    /** Dataset without values that opens [AutofillAuthActivity]; the activity returns the real Dataset. */
-    private fun authDataset(
-        parsed: ParsedStructure, username: AutofillId?, password: AutofillId?, request: FillRequest,
-        chooseAny: Boolean, title: String, subtitle: String, index: Int
-    ): Dataset {
-        val intent = Intent(this, AutofillAuthActivity::class.java).apply {
-            data = Uri.parse("reword-autofill:${UUID.randomUUID()}")
-            putExtra(AutofillAuthActivity.EXTRA_DOMAIN, parsed.webDomain)
-            putExtra(AutofillAuthActivity.EXTRA_PACKAGE, parsed.packageName)
-            putExtra(AutofillAuthActivity.EXTRA_USER_FIELD, username)
-            putExtra(AutofillAuthActivity.EXTRA_PASS_FIELD, password)
-            putExtra(AutofillAuthActivity.EXTRA_CHOOSE_ANY, chooseAny)
-        }
-        // Separate pending intents keep concurrent sessions from replacing each other's field IDs.
-        val flags = PendingIntent.FLAG_ONE_SHOT or
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-        val auth = PendingIntent.getActivity(this, 0, intent, flags)
-        val menu = presentation(title, subtitle)
-        // Dataset authentication must be paired with a Dataset result from the activity.
-        val dataset = Dataset.Builder(menu).setAuthentication(auth.intentSender)
-        val inline = createInlinePresentation(request, title, subtitle, index)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) dataset.setInlinePresentation(inline)
-        username?.let { dataset.setValue(it, null, menu) }
-        password?.let { dataset.setValue(it, null, menu) }
-        return dataset.build()
     }
 
     private data class ParsedStructure(
         val packageName: String?,
         var webDomain: String? = null,
         var focusedId: AutofillId? = null,
+        var windowTitle: String? = null,
         val usernameFields: MutableList<AutofillId> = mutableListOf(),
         val passwordFields: MutableList<AutofillId> = mutableListOf(),
         val newPasswordFields: MutableList<AutofillId> = mutableListOf(),
@@ -216,7 +190,11 @@ class ReWordAutofillService : AutofillService() {
     private fun parseStructure(structure: AssistStructure, cancellation: CancellationSignal, forSave: Boolean = false): ParsedStructure {
         val parsed = ParsedStructure(structure.activityComponent?.packageName)
         val nodes = java.util.ArrayDeque<AssistStructure.ViewNode>()
-        for (i in structure.windowNodeCount - 1 downTo 0) nodes.addLast(structure.getWindowNodeAt(i).rootViewNode)
+        for (i in structure.windowNodeCount - 1 downTo 0) {
+            val window = structure.getWindowNodeAt(i)
+            if (parsed.windowTitle == null) parsed.windowTitle = window.title?.toString()?.trim()?.takeIf { it.isNotBlank() }
+            nodes.addLast(window.rootViewNode)
+        }
         var count = 0
         // Iteration avoids stack overflow on deeply nested app/browser hierarchies.
         while (nodes.isNotEmpty() && count++ < 10000) {
@@ -238,8 +216,11 @@ class ReWordAutofillService : AutofillService() {
                 node.className.orEmpty().contains("EditText", true) || htmlInput)
             if (node.isFocused && editable) parsed.focusedId = id
             val labels = listOf(node.idEntry, node.hint, node.contentDescription,
-                attributes["name"], attributes["id"], attributes["placeholder"], attributes["aria-label"]).joinToString(" ") { it?.toString().orEmpty() }
-            val kind = CredentialFieldClassifier.classify(node.inputType, editable, hints, labels, attributes["type"])
+                attributes["name"], attributes["id"], attributes["placeholder"], attributes["aria-label"])
+                .joinToString(" ") { it?.toString().orEmpty() }
+            val nativeMax = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) node.maxTextLength else -1
+            val maxLength = nativeMax.takeIf { it > 0 } ?: attributes["maxlength"]?.toIntOrNull() ?: -1
+            val kind = CredentialFieldClassifier.classify(node.inputType, editable, hints, labels, attributes["type"], maxLength)
             if (id != null) {
                 val value = node.autofillValue
                 if (value?.isText == true) parsed.values[id] = value.textValue?.toString().orEmpty()
@@ -260,5 +241,10 @@ class ReWordAutofillService : AutofillService() {
                 parsed.editableFields[beforePassword] !in parsed.passwordFields) parsed.usernameFields.add(parsed.editableFields[beforePassword])
         }
         return parsed
+    }
+
+    private companion object {
+        /** Anything except 1–8 digits (one-time codes and PINs). */
+        val NOT_ONE_TIME_CODE: Pattern = Pattern.compile("(?!\\s*[0-9]{1,8}\\s*$)[\\s\\S]+")
     }
 }

@@ -1,5 +1,25 @@
 # Android releases
 
+## 1.3.3 (versionCode 9) - 2026-11-09
+
+Android:
+- Autofill no longer offers to save one-time codes / PINs: OTP fields (hints, labels, numeric-password and 1–3 character boxes) are excluded, and the save prompt is suppressed for 1–8 digit values.
+- Apps are recognised by their launcher name and brand-prefixed package names; the account chooser has a search box.
+- Cancelling unlock or the chooser keeps the ReWord suggestion available instead of ending autofill for that screen.
+- Vault list renders progressively (15 sites at a time) with a fade/slide-in; lighter favicon loading.
+- Add / edit / delete accounts in the app, with notes, categories (pick existing or create new) and a password generator; open-site button on each site.
+- Fixed a crash on a wrong master password when the local vault was newer than the cloud copy.
+
+Chrome extension 1.3.3:
+- Compact popup, site/account counter, category chips and filter, open-site button, notes, edit form, category picker, working show/hide password eye.
+- No "save?" prompt for logins already in the vault, even while the vault is locked (after it has been unlocked once with 1.3.3).
+
+Web app: category picker (existing categories as chips) in the add/edit site form.
+
+Validation: `testDebugUnitTest assembleDebug lintDebug` passed (29 tests); extension suite 12 of 12. Android autofill was not tested on a physical phone.
+
+Distribution: `ReWord-v1.3.3.apk` (versionCode 9), same certificate as 1.3.0/1.3.1, so those installs update in place. Older releases were removed. See `artifacts/INSTALL-v1.3.3.md`.
+
 ## 1.3.1 (versionCode 8) - 2026-11-05
 
 Android:

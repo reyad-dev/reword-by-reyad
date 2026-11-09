@@ -208,7 +208,7 @@ function popup(sites = []) {
   const dom = new JSDOM(source('popup.html'), { url: 'https://extension.test/popup.html', runScripts: 'outside-only', pretendToBeVisual: true });
   const win = dom.window;
   win.chrome = {
-    runtime: { lastError: null, getManifest: () => ({ version: '1.3.2' }), sendMessage(msg, cb) {
+    runtime: { lastError: null, getManifest: () => ({ version: '1.3.3' }), sendMessage(msg, cb) {
       cb?.(msg.action === 'GET_ALL_SITES' ? { sites } : { isUnlocked: true, matches: [] });
     } },
     storage: { local: { async get() { return {}; } } },

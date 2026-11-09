@@ -9,15 +9,15 @@
 [![Cloudflare Workers](https://img.shields.io/badge/Backend-Cloudflare%20Workers%20KV-F38020?logo=cloudflare)](https://workers.cloudflare.com/)
 [![Chrome Extension](https://img.shields.io/badge/Extension-Manifest%20V3-4285F4?logo=googlechrome)](./extension)
 [![Android App](https://img.shields.io/badge/Android%20App-Kotlin%20%2B%20Compose-3DDC84?logo=android)](./android)
-[![Download APK](https://img.shields.io/badge/Download-ReWord.apk-success?logo=android)](./ReWord.apk)
+[![Download APK](https://img.shields.io/badge/Download-ReWord--v1.3.3.apk-success?logo=android)](./ReWord-v1.3.3.apk)
 [![Encryption](https://img.shields.io/badge/Encryption-AES--256--GCM%20%2B%20PBKDF2%20(310k)-blueviolet)](#-نموذج-الأمان-والتشفير-security--cryptography-model)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 
 **ReWord by Reyad**, created by **Mohamed Reyad (@reyad-dev)**, is an open-source zero-knowledge password manager with encrypted sync, Chrome autofill, a native Android app, and self-hosted Cloudflare deployment.
 
-**Android 1.3.1 (versionCode 8):** [Latest Android release](https://github.com/reyad-dev/reword-by-reyad/releases/latest) · [Download APK](https://github.com/reyad-dev/reword-by-reyad/releases/latest/download/ReWord.apk) · [Installation and upgrade notes (Arabic)](android/artifacts/INSTALL-v1.3.1.md) · [Changelog](android/CHANGELOG.md).
+**Android 1.3.3 (versionCode 9):** [Release](https://github.com/reyad-dev/reword-by-reyad/releases/tag/v1.3.3) · [Download APK](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.3.3/ReWord-v1.3.3.apk) · [Installation and upgrade notes (Arabic)](android/artifacts/INSTALL-v1.3.3.md) · [Changelog](android/CHANGELOG.md).
 
-**Chrome extension 1.3.2:** [Download extension ZIP](https://github.com/reyad-dev/reword-by-reyad/releases/download/extension-v1.3.2/ReWord-Chrome-1.3.2.zip) · [Release and update instructions](extension/CHANGELOG.md). Fixes popup CSP errors, quick-add focus, and the autofill shield drifting during scrolling.
+**Chrome extension 1.3.3:** [Download extension ZIP](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.3.3/ReWord-Chrome-1.3.3.zip) · [Release and update instructions](extension/CHANGELOG.md). Compact popup with counters, categories, notes, edit and open-site buttons; no repeated save prompt for saved logins.
 
 **تحديث النسخ القديمة:** التحديث المباشر يحتاج نفس توقيع النسخة المثبّتة. نسختا GitHub القديمتان 1.2.1 و1.2.2 بتوقيع مختلف عن 1.3.0؛ قبل استبدالهما، صدّر نسخة احتياطية مشفرة وتأكد من المزامنة وبيانات فتح الخزنة. راجع دليل التثبيت أعلاه.
 ---
@@ -242,7 +242,7 @@ npx wrangler deploy
 ## 📱 تطبيق الأندرويد والملء التلقائي (Android App & Autofill)
 
 ### 1. تثبيت التطبيق:
-* يمكنك تثبيت النسخة الجاهزة مباشرة عبر تحميل ملف [`ReWord.apk`](./ReWord.apk) المرفق في المستودع وتثبيته على هاتفك.
+* يمكنك تثبيت النسخة الجاهزة مباشرة عبر تحميل ملف [`ReWord-v1.3.3.apk`](./ReWord-v1.3.3.apk) المرفق في المستودع وتثبيته على هاتفك.
 * أو فتح مجلد `android` داخل **Android Studio** وتشغيل المشروع مباشرة (`Run 'app'`).
 
 ### 2. تفعيل خدمة الملء التلقائي (Autofill Service):
@@ -272,7 +272,7 @@ npx wrangler deploy
 ├── manifest.json           # إعدادات تطبيق الويب التقدمي
 ├── icon.png                # أيقونة التطبيق الرئيسية
 ├── repo-icon.svg           # شعار ReWord الرسمي الموجه
-├── ReWord.apk              # حزمة تطبيق أندرويد الجاهزة للتثبيت
+├── ReWord-v1.3.3.apk       # حزمة تطبيق أندرويد الجاهزة للتثبيت
 │
 ├── worker/
 │   └── index.js            # كود Cloudflare Worker لمعالجة المزامنة المشفرة
@@ -457,7 +457,7 @@ npx wrangler deploy
 ## 📱 Android Application & Autofill Service
 
 1. **Install APK:**
-   * Download the ready-to-use [`ReWord.apk`](./ReWord.apk) directly onto your phone and tap to install.
+   * Download the ready-to-use [`ReWord-v1.3.3.apk`](./ReWord-v1.3.3.apk) directly onto your phone and tap to install.
    * Or open the `android` folder in **Android Studio** and click **Run**.
 2. **Enable Autofill Service:**
    * Open ReWord on your phone and unlock your vault.
