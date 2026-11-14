@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const extension = path.resolve(__dirname, '..');
+const extension = path.resolve(process.env.REWORD_EXTENSION_PATH || path.join(__dirname, '..'));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'reword-save-check-'));
 const password = 'integration-master-password';
 const form = '<form><input autocomplete="username"><input type="email"><input type="password"><button>Log in</button></form>';

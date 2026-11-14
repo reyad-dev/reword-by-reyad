@@ -17,7 +17,7 @@
 
 **Android 1.3.3 (versionCode 9):** [Release](https://github.com/reyad-dev/reword-by-reyad/releases/tag/v1.3.3) · [Download APK](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.3.3/ReWord-v1.3.3.apk) · [Installation and upgrade notes (Arabic)](android/artifacts/INSTALL-v1.3.3.md) · [Changelog](android/CHANGELOG.md).
 
-**Chrome extension 1.3.3:** [Download extension ZIP](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.3.3/ReWord-Chrome-1.3.3.zip) · [Release and update instructions](extension/CHANGELOG.md). Compact popup with counters, categories, notes, edit and open-site buttons; no repeated save prompt for saved logins.
+**Chrome extension 1.3.4:** [Download extension ZIP](https://github.com/reyad-dev/reword-by-reyad/releases/download/chrome-v1.3.4/ReWord-Chrome-1.3.4.zip) · [Release and update instructions](extension/CHANGELOG.md). Captures separate username and email fields with the password, suppresses duplicate save prompts, and adds new login identities as separate accounts.
 
 **تحديث النسخ القديمة:** التحديث المباشر يحتاج نفس توقيع النسخة المثبّتة. نسختا GitHub القديمتان 1.2.1 و1.2.2 بتوقيع مختلف عن 1.3.0؛ قبل استبدالهما، صدّر نسخة احتياطية مشفرة وتأكد من المزامنة وبيانات فتح الخزنة. راجع دليل التثبيت أعلاه.
 ---
