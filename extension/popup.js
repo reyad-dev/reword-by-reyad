@@ -40,6 +40,7 @@ const formSaveCredential = document.getElementById('form-save-credential');
 const addSiteName = document.getElementById('add-site-name');
 const addSiteUrl = document.getElementById('add-site-url');
 const addUser = document.getElementById('add-user');
+const addEmail = document.getElementById('add-email');
 const addPass = document.getElementById('add-pass');
 const addNotes = document.getElementById('add-notes');
 const modalTitle = document.getElementById('modal-title');
@@ -270,7 +271,7 @@ function renderCurrentSiteMatches(matches) {
 
     // Fill button
     card.querySelector('.btn-fill').addEventListener('click', () => {
-      triggerAutofill(acc.user, acc.pass);
+      triggerAutofill(acc.user, acc.pass, acc.email);
     });
 
     // Copy user
@@ -314,12 +315,13 @@ function addNewTag() {
   renderTagPicker();
 }
 
-function openAccountModal({ siteName = '', siteUrl = '', user = '', pass = '', notes = '', tags = '', edit = null } = {}) {
+function openAccountModal({ siteName = '', siteUrl = '', user = '', email = '', pass = '', notes = '', tags = '', edit = null } = {}) {
   EDITING = edit;
   modalTitle.textContent = edit ? 'تعديل الحساب' : 'إضافة حساب جديد';
   addSiteName.value = siteName;
   addSiteUrl.value = siteUrl;
   addUser.value = user;
+  addEmail.value = email;
   addPass.value = pass;
   setPasswordVisible(addPass, btnToggleAddPass, false);
   addNotes.value = notes;
@@ -339,11 +341,12 @@ btnQuickAddCur.addEventListener('click', () => {
 });
 
 // Trigger Autofill via Content Script in the Active Tab
-function triggerAutofill(user, pass) {
+function triggerAutofill(user, pass, email = '') {
   if (!CURRENT_TAB?.id) return;
   chrome.tabs.sendMessage(CURRENT_TAB.id, {
     action: 'TRIGGER_AUTOFILL',
     user,
+    email,
     pass
   }, { frameId: 0 }, () => {
     showToast('تمت تعبئة البيانات في الصفحة ✓');
@@ -440,6 +443,7 @@ function renderAllSites() {
             siteName: site.name || '',
             siteUrl: site.url || '',
             user: acc.user || '',
+            email: acc.email || '',
             pass: acc.pass || '',
             notes: acc.notes || '',
             tags: site.tags || '',
@@ -641,6 +645,7 @@ formSaveCredential.addEventListener('submit', (e) => {
   const siteName = addSiteName.value.trim();
   const siteUrl = addSiteUrl.value.trim();
   const user = addUser.value.trim();
+  const email = addEmail.value.trim();
   const pass = addPass.value;
   const notes = addNotes.value.trim();
   if (tagNewInput.value.trim()) addNewTag(); // typed a category but did not press "+"
@@ -649,8 +654,8 @@ formSaveCredential.addEventListener('submit', (e) => {
   if (!siteName || !user || !pass) return;
 
   const payload = EDITING
-    ? { action: 'UPDATE_ACCOUNT', siteId: EDITING.siteId, accountId: EDITING.accountId, siteName, siteUrl, user, pass, notes, tags }
-    : { action: 'SAVE_CREDENTIAL', siteName, siteUrl, user, pass, notes, tags };
+    ? { action: 'UPDATE_ACCOUNT', siteId: EDITING.siteId, accountId: EDITING.accountId, siteName, siteUrl, user, email, pass, notes, tags }
+    : { action: 'SAVE_CREDENTIAL', siteName, siteUrl, user, email, pass, notes, tags };
 
   chrome.runtime.sendMessage(payload, (res) => {
     if (res?.success) {

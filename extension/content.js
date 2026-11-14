@@ -163,6 +163,31 @@
       [field.name, field.id, field.autocomplete, field.placeholder].join(' '))).pop() || null;
   }
 
+  function identityFields(field) {
+    const root = field?.form || field?.getRootNode?.() || document;
+    const candidates = inputs(root).filter(input => isUsername(input) && isFieldVisible(input));
+    const email = candidates.find(input => input.type === 'email' || input.autocomplete === 'email') ||
+      candidates.find(input => /email|e-mail|بريد/i.test(
+        [input.name, input.id, input.placeholder, input.getAttribute('aria-label')].join(' ')) &&
+        !/username|اسم.?المستخدم/i.test([input.name, input.id, input.placeholder].join(' ')));
+    const user = candidates.find(input => input !== email) || (field?.type === 'password' ? findUsernameField(field) : candidates[0]);
+    return { user, email };
+  }
+
+  function readIdentity(field) {
+    const fields = identityFields(field);
+    return { user: (fields.user || fields.email)?.value.trim() || '',
+      email: fields.email && fields.email !== fields.user ? fields.email.value.trim() : '',
+      hasIdentityFields: Boolean(fields.user || fields.email) };
+  }
+
+  function fillIdentity(field, credential) {
+    const fields = identityFields(field);
+    if (fields.user && credential.user) setFieldValue(fields.user, credential.user);
+    if (fields.email && (credential.email || credential.user)) setFieldValue(fields.email, credential.email || credential.user);
+    return Boolean(fields.user || fields.email);
+  }
+
   // Remove existing dropdown
   function closeDropdown() {
     if (activeDropdown) {
@@ -334,7 +359,7 @@
           const usernameField = field.type === 'password' ? findUsernameField(field) : field;
           const passwordField = field.type === 'password' ? field : associatedPassword(field);
 
-          if (usernameField && acc.user) setFieldValue(usernameField, acc.user);
+          fillIdentity(passwordField || usernameField, acc);
           if (passwordField && !isNewPassword(passwordField) && acc.pass) setFieldValue(passwordField, acc.pass);
           closeDropdown();
         }
@@ -405,7 +430,8 @@
           const usernameField = field.type === 'password' ? findUsernameField(field) : field;
           const passwordField = field.type === 'password' ? field : associatedPassword(field);
 
-          const userVal = usernameField ? usernameField.value.trim() : '';
+          const identity = readIdentity(passwordField || usernameField);
+          const userVal = identity.user;
           const passVal = passwordField ? passwordField.value : '';
 
           if (!userVal && !passVal) {
@@ -418,6 +444,7 @@
             siteName: res.domain || window.location.hostname,
             siteUrl: window.location.origin,
             user: userVal,
+            email: identity.email,
             pass: passVal,
             notes: ''
           }, (saveRes) => {
@@ -484,6 +511,7 @@
         save.disabled = false;
         if (chrome.runtime.lastError) { status.textContent = 'أعد تحميل الإضافة ثم حاول مرة أخرى.'; return; }
         if (result?.success) {
+          dismissedCapture = lastCapture;
           saveHost?.remove(); saveHost = null;
         } else status.textContent = result?.error === 'vault_locked'
           ? 'افتح إضافة ReWord لإلغاء قفل الخزنة، ثم اضغط حفظ.' : 'تعذر الحفظ. أعد كتابة البيانات وحاول مرة أخرى.';
@@ -502,16 +530,17 @@
     const root = target?.form || (target?.getRootNode?.() === document ? document : target?.getRootNode?.()) || document;
     const passwords = passwordFields(root);
     const password = passwords.find(isNewPassword) || passwords[0];
-    const username = password ? findUsernameField(password) : inputs(root).find(field => isUsername(field) && isFieldVisible(field));
-    if (username?.value.trim()) previousUsername = username.value.trim();
+    const identity = readIdentity(password || target);
+    if (identity.hasIdentityFields) previousUsername = identity.user;
     if (!password?.value) return;
-    const user = username?.value.trim() || previousUsername;
+    const user = identity.hasIdentityFields ? identity.user : previousUsername;
+    const email = identity.email;
     const pass = password.value;
-    const fingerprint = JSON.stringify([user, pass]);
+    const fingerprint = JSON.stringify([user, email, pass]);
     if (fingerprint === lastCapture || fingerprint === dismissedCapture) return;
     lastCapture = fingerprint;
     saveHost?.remove(); saveHost = null;
-    chrome.runtime.sendMessage({ action: 'STAGE_CREDENTIAL', user, pass }, state => {
+    chrome.runtime.sendMessage({ action: 'STAGE_CREDENTIAL', user, email, pass, hasIdentityFields: identity.hasIdentityFields }, state => {
       if (!chrome.runtime.lastError && fingerprint === lastCapture) showSavePrompt(state);
     });
   }
@@ -523,9 +552,10 @@
     // Invalidate the displayed consent while its underlying credentials are being edited.
     saveHost?.remove(); saveHost = null;
     lastCapture = '';
-    if (isUsername(target) && target.value.trim()) {
-      previousUsername = target.value.trim();
-      chrome.runtime.sendMessage({ action: 'STAGE_USERNAME', user: previousUsername }, () => { void chrome.runtime.lastError; });
+    if (isUsername(target)) {
+      const identity = readIdentity(target);
+      previousUsername = identity.user;
+      chrome.runtime.sendMessage({ action: 'STAGE_USERNAME', user: previousUsername, email: identity.email }, () => { void chrome.runtime.lastError; });
     }
     clearTimeout(captureTimer);
     captureTimer = setTimeout(() => captureCredentials(target), 700);
@@ -614,10 +644,7 @@
       const userInput = passInput ? findUsernameField(passInput) : inputs().find(field => isUsername(field) && isFieldVisible(field));
       
       let filled = false;
-      if (userInput && msg.user) {
-        setFieldValue(userInput, msg.user);
-        filled = true;
-      }
+      if (msg.user || msg.email) filled = fillIdentity(passInput || userInput, msg);
       if (passInput && msg.pass) {
         setFieldValue(passInput, msg.pass);
         filled = true;

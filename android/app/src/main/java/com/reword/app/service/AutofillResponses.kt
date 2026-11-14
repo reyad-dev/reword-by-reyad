@@ -30,7 +30,9 @@ internal object AutofillResponses {
         val appLabel: String?,
         val userField: AutofillId?,
         val passField: AutofillId?,
-        val saveInfo: SaveInfo?
+        val saveInfo: SaveInfo?,
+        val emailField: AutofillId? = null,
+        val userIsEmail: Boolean = false
     )
 
     fun presentation(context: Context, title: String, subtitle: String) =
@@ -47,7 +49,9 @@ internal object AutofillResponses {
         val menu = presentation(context, title, subtitle)
         val builder = Dataset.Builder(menu)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) builder.setInlinePresentation(inline)
-        target.userField?.let { builder.setValue(it, AutofillValue.forText(account.user), menu) }
+        target.userField?.let { builder.setValue(it, AutofillValue.forText(
+            if (target.userIsEmail) account.email.orEmpty().ifBlank { account.user } else account.user), menu) }
+        target.emailField?.let { builder.setValue(it, AutofillValue.forText(account.email.orEmpty().ifBlank { account.user }), menu) }
         target.passField?.let { builder.setValue(it, AutofillValue.forText(account.pass), menu) }
         return builder.build()
     }
@@ -64,6 +68,8 @@ internal object AutofillResponses {
             putExtra(AutofillAuthActivity.EXTRA_APP_LABEL, target.appLabel)
             putExtra(AutofillAuthActivity.EXTRA_USER_FIELD, target.userField)
             putExtra(AutofillAuthActivity.EXTRA_PASS_FIELD, target.passField)
+            putExtra(AutofillAuthActivity.EXTRA_EMAIL_FIELD, target.emailField)
+            putExtra(AutofillAuthActivity.EXTRA_USER_IS_EMAIL, target.userIsEmail)
             putExtra(AutofillAuthActivity.EXTRA_SAVE_INFO, target.saveInfo)
             putExtra(AutofillAuthActivity.EXTRA_CHOOSE_ANY, chooseAny)
         }
@@ -76,6 +82,7 @@ internal object AutofillResponses {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) dataset.setInlinePresentation(inline)
         target.userField?.let { dataset.setValue(it, null, menu) }
         target.passField?.let { dataset.setValue(it, null, menu) }
+        target.emailField?.let { dataset.setValue(it, null, menu) }
         return dataset.build()
     }
 

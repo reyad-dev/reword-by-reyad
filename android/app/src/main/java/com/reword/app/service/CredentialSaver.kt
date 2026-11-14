@@ -32,14 +32,15 @@ internal object CredentialSaver {
         val pass: String,
         val notes: String,
         /** Comma-separated categories for the site; null leaves them unchanged. */
-        val tags: String? = null
+        val tags: String? = null,
+        val email: String? = null
     )
 
-    suspend fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, appLabel: String? = null) {
+    suspend fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, appLabel: String? = null, email: String = "") {
         require(pass.isNotEmpty())
         val linkKey = AutofillSiteMatcher.linkKey(domain, app)
         mutate(storage) { root ->
-            val siteId = mergeCredential(root, domain, app, user, pass, storage.getLinkedSiteId(linkKey), appLabel)
+            val siteId = mergeCredential(root, domain, app, user, pass, storage.getLinkedSiteId(linkKey), appLabel, email)
             storage.linkSite(linkKey, siteId)
         }
     }
@@ -125,10 +126,12 @@ internal object CredentialSaver {
         val accounts = site.accounts()
         val account = edit.accountId?.let { id -> accounts.map { it.asJsonObject }.firstOrNull { it.str("id") == id } }
             ?: JsonObject().apply { addProperty("id", UUID.randomUUID().toString()) }.also { accounts.add(it) }
-        val changed = account.str("user") != edit.user.trim() || account.str("pass") != edit.pass || account.str("notes") != edit.notes
+        val changed = account.str("user") != edit.user.trim() || account.str("pass") != edit.pass || account.str("notes") != edit.notes ||
+            (edit.email != null && account.str("email") != edit.email.trim())
         account.addProperty("user", edit.user.trim())
         account.addProperty("pass", edit.pass)
         account.addProperty("notes", edit.notes)
+        edit.email?.let { account.addProperty("email", it.trim()) }
         if (changed || !account.has("lastModified")) account.addProperty("lastModified", System.currentTimeMillis())
         return site.str("id")
     }
@@ -152,7 +155,7 @@ internal object CredentialSaver {
      */
     internal fun mergeCredential(
         root: JsonObject, domain: String?, app: String?, user: String, pass: String, linkedSiteId: String? = null,
-        appLabel: String? = null
+        appLabel: String? = null, email: String = ""
     ): String? {
         require(pass.isNotEmpty())
         val sites = root.sites()
@@ -161,7 +164,10 @@ internal object CredentialSaver {
         val matchedIds = AutofillSiteMatcher.find(Gson().fromJson(root, Vault::class.java), domain, app, linkedSiteId, appLabel)
             .map { it.id }
         val siteObjects = sites.map { it.asJsonObject }
-        val site = siteObjects.firstOrNull { it.str("url") == target }
+        val matchingSites = siteObjects.filter { it.str("id") in matchedIds || it.str("url") == target }
+        val site = matchingSites.firstOrNull { s -> s.accounts().any { containsCredential(it.asJsonObject, user, email, pass) } }
+            ?: matchingSites.firstOrNull { s -> s.accounts().any { matchesIdentity(it.asJsonObject, user, email) } }
+            ?: siteObjects.firstOrNull { it.str("url") == target }
             ?: matchedIds.firstNotNullOfOrNull { id -> siteObjects.firstOrNull { it.str("id") == id } }
             ?: JsonObject().apply {
                 addProperty("id", UUID.randomUUID().toString())
@@ -172,22 +178,42 @@ internal object CredentialSaver {
         val accounts = site.accounts()
         val list = accounts.map { it.asJsonObject }
         val trimmed = user.trim()
-        val account = (if (trimmed.isNotEmpty()) {
-            // Same login typed with different case/spaces is the same account (password change)
-            list.firstOrNull { it.str("user").trim().equals(trimmed, ignoreCase = true) }
-        } else {
-            // Password-only screens: update the site's single account instead of adding a nameless one
-            list.firstOrNull { it.str("pass") == pass } ?: list.singleOrNull()
-        }) ?: JsonObject().apply {
+        // A password alone only matches an unchanged saved password.
+        val account = list.firstOrNull { containsCredential(it, trimmed, email, pass) }
+            ?: list.firstOrNull { matchesIdentity(it, trimmed, email) }
+            ?: JsonObject().apply {
             addProperty("id", UUID.randomUUID().toString())
             addProperty("user", trimmed)
             addProperty("notes", "")
             accounts.add(this)
         }
-        if (account.str("pass") != pass) {
+        val identityChanged = email.isNotBlank() && (account.str("email") != email.trim() ||
+            (account.str("user").equals(email.trim(), true) && trimmed.isNotEmpty() && account.str("user") != trimmed))
+        if (account.str("pass") != pass || identityChanged) {
             account.addProperty("pass", pass)
             account.addProperty("lastModified", System.currentTimeMillis())
         }
+        if (email.isNotBlank()) {
+            if (account.str("user").equals(email.trim(), ignoreCase = true) && trimmed.isNotEmpty()) account.addProperty("user", trimmed)
+            account.addProperty("email", email.trim())
+        }
         return site.str("id").ifBlank { null }
+    }
+
+    private fun matchesIdentity(account: JsonObject, user: String, email: String): Boolean {
+        val identifiers = listOf(user.trim(), email.trim()).filter { it.isNotEmpty() }
+        if (identifiers.isEmpty()) return false
+        val savedUser = account.str("user").trim()
+        val savedEmail = account.str("email").trim()
+        if (user.isNotBlank() && email.isNotBlank() && savedUser.isNotEmpty() &&
+            !savedUser.equals(user.trim(), true) && !savedUser.equals(email.trim(), true)) return false
+        if (email.isNotBlank() && savedEmail.isNotEmpty() && !savedEmail.equals(email.trim(), true)) return false
+        return identifiers.any { it.equals(savedUser, true) || it.equals(savedEmail, true) }
+    }
+
+    private fun containsCredential(account: JsonObject, user: String, email: String, pass: String): Boolean {
+        if (account.str("pass") != pass) return false
+        val aliases = listOf(account.str("user").trim(), account.str("email").trim())
+        return listOf(user.trim(), email.trim()).filter { it.isNotEmpty() }.all { value -> aliases.any { it.equals(value, true) } }
     }
 }

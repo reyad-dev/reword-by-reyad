@@ -49,7 +49,8 @@ data class AccountForm(
     val user: String,
     val pass: String,
     val notes: String,
-    val tags: String
+    val tags: String,
+    val email: String = ""
 )
 
 private data class EditorState(val site: Site?, val account: Account?)
@@ -231,9 +232,9 @@ fun VaultScreen(
             existingTags = allTags,
             saving = saving,
             onDismiss = { editor = null },
-            onSave = { name, url, user, pass, notes, tags ->
+            onSave = { name, url, user, pass, notes, tags, email ->
                 saving = true
-                onSaveAccount(AccountForm(state.site?.id, state.account?.id, name, url, user, pass, notes, tags)) { ok ->
+                onSaveAccount(AccountForm(state.site?.id, state.account?.id, name, url, user, pass, notes, tags, email)) { ok ->
                     saving = false
                     if (ok) editor = null
                 }

@@ -13,10 +13,17 @@ vaults show instructions to unlock the extension and retry Save.
 
 Pending captures live only in trusted extension session storage, scoped to the
 tab, frame and exact origin. They are never written to local storage before
-consent. They expire after ten minutes and are removed on dismissal, successful
-save, vault lock, or closing the tab. Same-origin full-page navigation can restore
+consent. Username-only steps expire after ten minutes. A pending password remains
+available until dismissal, successful save, tab closure, or browser exit, including
+across vault lock/unlock. Same-origin full-page navigation can restore
 the prompt; cross-origin redirects cannot read or confirm a previous capture.
 Username-first forms retain the username for the password step on the same origin.
+Separate username and email fields are captured together, stored on the same account,
+and restored into their respective fields. Existing accounts with only `user` remain supported.
+
+The real-extension storage check uses a temporary Chromium profile, clicks the production
+Save button, restarts the browser, and verifies the encrypted vault and duplicate suppression.
+Run `node extension/tests/credential-storage.browser.cjs` with Playwright Chromium installed.
 
 ## Automated checks (2026-10-31)
 

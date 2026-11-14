@@ -52,8 +52,12 @@ class ReWordAutofillService : AutofillService() {
                 val latest = contexts.lastOrNull() ?: error("Missing structure")
                 val related = contexts.filter { it.packageName == latest.packageName && it.webDomain == latest.webDomain }
                 val user = related.asReversed().firstNotNullOfOrNull { p ->
-                    p.usernameFields.firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
+                    (p.usernameFields.filter { it !in p.emailFields } + p.emailFields)
+                        .firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
                 }.orEmpty().trim()
+                val email = related.asReversed().firstNotNullOfOrNull { p ->
+                    p.emailFields.firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
+                }.orEmpty().trim().takeUnless { it.equals(user, true) }.orEmpty()
                 val pass = related.asReversed().firstNotNullOfOrNull { p ->
                     (p.newPasswordFields + p.passwordFields).firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotEmpty) }
                 }
@@ -64,7 +68,7 @@ class ReWordAutofillService : AutofillService() {
                 }
                 val label = AutofillResponses.appLabel(this@ReWordAutofillService, latest.packageName)
                 if (SecureStorage.activeMasterPassword != null) {
-                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass, label)
+                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass, label, email)
                     callback.onSuccess()
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     val intent = Intent(this@ReWordAutofillService, AutofillAuthActivity::class.java).apply {
@@ -74,6 +78,7 @@ class ReWordAutofillService : AutofillService() {
                         putExtra(AutofillAuthActivity.EXTRA_PACKAGE, latest.packageName)
                         putExtra(AutofillAuthActivity.EXTRA_APP_LABEL, label)
                         putExtra("save_user", user)
+                        putExtra("save_email", email)
                         putExtra("save_pass", pass)
                     }
                     callback.onSuccess(PendingIntent.getActivity(this@ReWordAutofillService, 0, intent,
@@ -109,13 +114,17 @@ class ReWordAutofillService : AutofillService() {
 
     private fun createResponse(parsed: ParsedStructure, request: FillRequest): FillResponse? {
         if (parsed.packageName == packageName) return null
+        // Registration forms collect a new identity and must start with a fresh save response.
+        if (parsed.newPasswordFields.isNotEmpty() && parsed.passwordFields.isEmpty()) return saveInfo(parsed)?.let {
+            FillResponse.Builder().setSaveInfo(it).build()
+        }
         // A manual long-press Autofill request can recover an unlabelled login field.
         if (request.flags and FillRequest.FLAG_MANUAL_REQUEST != 0 && parsed.usernameFields.isEmpty() &&
             parsed.passwordFields.isEmpty() && parsed.newPasswordFields.isEmpty() &&
             parsed.focusedId != null && parsed.focusedId in parsed.editableFields) {
             parsed.usernameFields.add(parsed.focusedId!!)
         }
-        val username = parsed.usernameFields.firstOrNull { it == parsed.focusedId } ?: parsed.usernameFields.firstOrNull()
+        val username = parsed.usernameFields.firstOrNull { it !in parsed.emailFields } ?: parsed.usernameFields.firstOrNull()
         val password = parsed.passwordFields.firstOrNull { it == parsed.focusedId } ?: parsed.passwordFields.firstOrNull()
         val save = saveInfo(parsed)
         if (username == null && password == null) return save?.let { FillResponse.Builder().setSaveInfo(it).build() }
@@ -126,7 +135,8 @@ class ReWordAutofillService : AutofillService() {
             } else null
         }
         val label = AutofillResponses.appLabel(this, parsed.packageName) ?: parsed.windowTitle
-        val target = AutofillResponses.Target(parsed.webDomain, parsed.packageName, label, username, password, save)
+        val target = AutofillResponses.Target(parsed.webDomain, parsed.packageName, label, username, password, save,
+            parsed.emailFields.firstOrNull { it != username }, username in parsed.emailFields)
         val vault = SecureStorage.activeVault
         val linked = SecureStorage(this).getLinkedSiteId(AutofillSiteMatcher.linkKey(parsed.webDomain, parsed.packageName))
         val matches = vault?.let { AutofillSiteMatcher.find(it, parsed.webDomain, parsed.packageName, linked, label) }.orEmpty()
@@ -181,6 +191,7 @@ class ReWordAutofillService : AutofillService() {
         var focusedId: AutofillId? = null,
         var windowTitle: String? = null,
         val usernameFields: MutableList<AutofillId> = mutableListOf(),
+        val emailFields: MutableList<AutofillId> = mutableListOf(),
         val passwordFields: MutableList<AutofillId> = mutableListOf(),
         val newPasswordFields: MutableList<AutofillId> = mutableListOf(),
         val values: MutableMap<AutofillId, String> = mutableMapOf(),
@@ -225,7 +236,18 @@ class ReWordAutofillService : AutofillService() {
                 val value = node.autofillValue
                 if (value?.isText == true) parsed.values[id] = value.textValue?.toString().orEmpty()
                 when (kind) {
-                    CredentialFieldClassifier.Kind.USERNAME -> { parsed.usernameFields.add(id); parsed.editableFields.add(id) }
+                    CredentialFieldClassifier.Kind.USERNAME -> {
+                        parsed.usernameFields.add(id)
+                        if (hints.any { it.equals("email", true) || it.equals("emailAddress", true) } ||
+                            attributes["type"].equals("email", true) || Regex("email|e-mail|بريد", RegexOption.IGNORE_CASE).containsMatchIn(labels) ||
+                            (node.inputType and android.text.InputType.TYPE_MASK_CLASS == android.text.InputType.TYPE_CLASS_TEXT &&
+                                node.inputType and android.text.InputType.TYPE_MASK_VARIATION in setOf(
+                                    android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                                    android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS))) {
+                            parsed.emailFields.add(id)
+                        }
+                        parsed.editableFields.add(id)
+                    }
                     CredentialFieldClassifier.Kind.PASSWORD -> { parsed.passwordFields.add(id); parsed.editableFields.add(id) }
                     CredentialFieldClassifier.Kind.NEW_PASSWORD -> { parsed.newPasswordFields.add(id); parsed.editableFields.add(id) }
                     CredentialFieldClassifier.Kind.CANDIDATE -> parsed.editableFields.add(id)

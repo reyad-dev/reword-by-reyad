@@ -42,12 +42,12 @@ class AutofillUnlockModel : ViewModel() {
     var saving = false
         private set
 
-    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, label: String?) {
+    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, label: String?, email: String) {
         if (saving || saved.value != null) return
         saving = true
         viewModelScope.launch {
             saved.value = try {
-                CredentialSaver.save(storage, domain, app, user, pass, label)
+                CredentialSaver.save(storage, domain, app, user, pass, label, email)
                 Result.success(Unit)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { Result.failure(e) }
@@ -78,6 +78,8 @@ class AutofillAuthActivity : FragmentActivity() {
         const val EXTRA_PACKAGE = "extra_package"
         const val EXTRA_USER_FIELD = "extra_user_field"
         const val EXTRA_PASS_FIELD = "extra_pass_field"
+        const val EXTRA_EMAIL_FIELD = "extra_email_field"
+        const val EXTRA_USER_IS_EMAIL = "extra_user_is_email"
         const val EXTRA_SAVE = "extra_save"
         const val EXTRA_CHOOSE_ANY = "extra_choose_any"
         const val EXTRA_APP_LABEL = "extra_app_label"
@@ -167,7 +169,8 @@ class AutofillAuthActivity : FragmentActivity() {
 
     private fun target() = AutofillResponses.Target(
         intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE), appLabel,
-        userField, passField, parcelExtra(EXTRA_SAVE_INFO, SaveInfo::class.java)
+        userField, passField, parcelExtra(EXTRA_SAVE_INFO, SaveInfo::class.java),
+        parcelExtra(EXTRA_EMAIL_FIELD, AutofillId::class.java), intent.getBooleanExtra(EXTRA_USER_IS_EMAIL, false)
     )
 
     /** Default result: a fresh response so the suggestion re-appears when the user cancels. */
@@ -259,7 +262,8 @@ class AutofillAuthActivity : FragmentActivity() {
             phase = "saving"
             dialog?.dismiss()
             model.save(storage, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE),
-                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty(), appLabel)
+                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty(), appLabel,
+                intent.getStringExtra("save_email").orEmpty())
             return
         }
         phase = "chooser"

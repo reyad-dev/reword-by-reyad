@@ -11,7 +11,7 @@ const source = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
 const cryptoHelpers = (() => {
   const ctx = { URL, crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob };
   vm.runInNewContext(source('crypto.js').replace(/^export /gm, '') +
-    '\n;this.siteMatchesDomain = siteMatchesDomain; this.sameUser = sameUser; this.hostMatches = hostMatches;', ctx);
+    '\n;Object.assign(this, { CV, cleanWorkerUrl, extractDomain, siteMatchesDomain, sameUser, hostMatches, accountMatchesCredential, accountContainsCredential });', ctx);
   return ctx;
 })();
 
@@ -30,8 +30,7 @@ test('domain matching is strict: subdomains and parents only, no substrings, sib
   assert.equal(cryptoHelpers.sameUser(' Alice@Test ', 'alice@test'), true);
 });
 
-function worker() {
-  const local = {}, session = {};
+function worker({ local = {}, session = {}, realCrypto = false } = {}) {
   const area = data => ({
     async get(keys) { return keys === null ? { ...data } : Object.fromEntries((typeof keys === 'string' ? [keys] : keys).map(k => [k, data[k]])); },
     async set(value) { Object.assign(data, value); },
@@ -46,11 +45,13 @@ function worker() {
     runtime: { onMessage: { addListener(fn) { listener = fn; } }, onInstalled: { addListener() {} } }
   };
   vm.runInNewContext(source('background.js').replace(/^import .*;$/m, ''), {
-    chrome, console, structuredClone, URL, Date, Math,
-    CV: { enc: async value => JSON.stringify(value), dec: async value => JSON.parse(value) },
-    cleanWorkerUrl: value => value || '', extractDomain: value => new URL(value).hostname,
+    chrome, console, structuredClone, URL, Date, Math, crypto: globalThis.crypto, TextEncoder,
+    CV: realCrypto ? cryptoHelpers.CV : { enc: async value => JSON.stringify(value), dec: async value => JSON.parse(value) },
+    cleanWorkerUrl: cryptoHelpers.cleanWorkerUrl, extractDomain: cryptoHelpers.extractDomain,
     // Real matching helpers from crypto.js (the same code the extension ships)
-    siteMatchesDomain: cryptoHelpers.siteMatchesDomain, sameUser: cryptoHelpers.sameUser
+    siteMatchesDomain: cryptoHelpers.siteMatchesDomain, sameUser: cryptoHelpers.sameUser,
+    hostMatches: cryptoHelpers.hostMatches, accountMatchesCredential: cryptoHelpers.accountMatchesCredential,
+    accountContainsCredential: cryptoHelpers.accountContainsCredential
   });
   const sender = { tab: { id: 1 }, frameId: 0, url: 'https://example.test/signup' };
   return { local, session, sender, send: (msg, from = sender) => new Promise(resolve => listener(msg, from, resolve)) };
@@ -70,6 +71,108 @@ test('capture waits for consent; confirmation saves, updates and preserves metad
   const saved = JSON.parse(w.local.encVault).sites[0].accounts;
   assert.equal(saved.length, 1);
   assert.equal(saved[0].pass, 'changed-test-password');
+});
+
+test('locked vault suppresses saved credentials on hosts containing s and multi-URL sites', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  await w.send({ action: 'SAVE_CREDENTIAL', siteName: 'Social', siteUrl: 'https://social.test, https://second.test',
+    user: 'Alice', email: 'alice@mail.test', pass: 'saved-pass' }, {});
+  await w.send({ action: 'LOCK_VAULT' }, {});
+  for (const host of ['social.test', 'login.social.test', 'second.test']) {
+    const sender = { ...w.sender, url: `https://${host}/login` };
+    for (const user of ['alice', 'ALICE@mail.test']) {
+      assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user, pass: 'saved-pass' }, sender)).pending, false);
+    }
+    assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: 'Alice', email: 'alice@mail.test', pass: 'saved-pass' }, sender)).pending, false);
+    assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: 'new-user', pass: 'saved-pass' }, sender)).pending, true);
+  }
+});
+
+test('locked credential index respects sibling subdomains and shared hosting boundaries', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  for (const host of ['a.example.test', 'alice.github.io']) {
+    await w.send({ action: 'SAVE_CREDENTIAL', siteName: host, siteUrl: `https://${host}`, user: 'alice', pass: 'saved-pass' }, {});
+  }
+  await w.send({ action: 'LOCK_VAULT' }, {});
+  for (const [host, pending] of [['a.example.test', false], ['example.test', false], ['b.example.test', true],
+    ['alice.github.io', false], ['github.io', true], ['bob.github.io', true]]) {
+    assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: 'alice', pass: 'saved-pass' },
+      { ...w.sender, url: `https://${host}/login` })).pending, pending, host);
+  }
+});
+
+test('new identity adds an account and blank identity never overwrites a saved account', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  for (const [user, pass] of [['alice', 'a-pass'], ['bob', 'b-pass'], ['', 'unknown-pass']]) {
+    const state = await w.send({ action: 'STAGE_CREDENTIAL', user, pass, hasIdentityFields: true });
+    assert.equal(state.update, false);
+    assert.equal((await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' })).success, true);
+  }
+  assert.deepEqual(JSON.parse(w.local.encVault).sites[0].accounts.map(a => [a.user, a.pass]),
+    [['alice', 'a-pass'], ['bob', 'b-pass'], ['', 'unknown-pass']]);
+  assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: 'ALICE', pass: 'changed-pass' })).update, true);
+});
+
+test('matching uses every saved account and updates the site that owns the identity', async () => {
+  const vault = { sites: [
+    { id: 'first', name: 'Example', url: 'https://example.test', accounts: [{ id: 'a', user: 'alice', pass: 'old' }] },
+    { id: 'second', name: 'Example login', url: 'https://example.test/login', accounts: [{ id: 'b', user: 'alice', pass: 'current' }] }
+  ] };
+  const w = worker({ local: { encVault: JSON.stringify(vault) } });
+  await w.send({ action: 'UNLOCK_VAULT', password: 'master-test' }, {});
+  assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: 'alice', pass: 'current' })).pending, false);
+  vault.sites[0].accounts[0].user = 'bob';
+  const another = worker({ local: { encVault: JSON.stringify(vault) } });
+  await another.send({ action: 'UNLOCK_VAULT', password: 'master-test' }, {});
+  await another.send({ action: 'STAGE_CREDENTIAL', user: 'alice', pass: 'new-pass' });
+  await another.send({ action: 'CONFIRM_PENDING_CREDENTIAL' });
+  const sites = JSON.parse(another.local.encVault).sites;
+  assert.equal(sites[0].accounts.length, 1);
+  assert.equal(sites[0].accounts[0].pass, 'old');
+  assert.equal(sites[1].accounts[0].pass, 'new-pass');
+});
+
+test('same display name on an unrelated host creates a separate site', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  for (const host of ['example.test', 'other.test']) {
+    await w.send({ action: 'SAVE_CREDENTIAL', siteName: 'Example', siteUrl: `https://${host}`, user: 'alice', pass: host }, {});
+  }
+  assert.equal(JSON.parse(w.local.encVault).sites.length, 2);
+});
+
+test('pending consent survives lock/unlock and retains a usable save button', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  await w.send({ action: 'STAGE_CREDENTIAL', user: 'alice', pass: 'pending-pass' });
+  assert.equal(w.session['capture:1:0'].expires, null);
+  await w.send({ action: 'LOCK_VAULT' }, {});
+  assert.equal((await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' })).error, 'vault_locked');
+  await w.send({ action: 'UNLOCK_VAULT', password: 'master-test' }, {});
+  assert.equal((await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' })).success, true);
+  assert.equal(JSON.parse(w.local.encVault).sites[0].accounts[0].pass, 'pending-pass');
+});
+
+test('storage failure leaves the persisted vault and active session intact', async () => {
+  let failWrite = false;
+  const local = new Proxy({}, { set(target, key, value) {
+    if (failWrite && key === 'encVault') throw new Error('test storage failure');
+    target[key] = value;
+    return true;
+  } });
+  const w = worker({ local });
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  const before = local.encVault;
+  await w.send({ action: 'STAGE_CREDENTIAL', user: 'alice', pass: 'pending-pass' });
+  failWrite = true;
+  assert.equal((await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' })).success, false);
+  assert.equal(local.encVault, before);
+  assert.equal((await w.send({ action: 'GET_ALL_SITES' }, {})).sites.length, 0);
+  failWrite = false;
+  assert.equal((await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' })).success, true);
 });
 
 test('pending credentials survive same-origin navigation and reject other origins/frames', async () => {
@@ -94,7 +197,24 @@ test('username-first flow, expiry and dismissal', async () => {
   assert.equal((await w.send({ action: 'GET_PENDING_CREDENTIAL' })).pending, false);
 });
 
-function page(html) {
+test('username/email first step retains both identifiers for a later password-only step', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  await w.send({ action: 'STAGE_USERNAME', user: 'alice', email: 'alice@mail.test' });
+  await w.send({ action: 'STAGE_CREDENTIAL', user: '', email: '', pass: 'test-password', hasIdentityFields: false });
+  await w.send({ action: 'CONFIRM_PENDING_CREDENTIAL' });
+  const account = JSON.parse(w.local.encVault).sites[0].accounts[0];
+  assert.equal(account.user, 'alice');
+  assert.equal(account.email, 'alice@mail.test');
+});
+
+test('cleared visible username cannot inherit a previously captured account identity', async () => {
+  const w = worker();
+  await w.send({ action: 'STAGE_USERNAME', user: 'alice' });
+  assert.equal((await w.send({ action: 'STAGE_CREDENTIAL', user: '', pass: 'test-password', hasIdentityFields: true })).user, '');
+});
+
+function page(html, background = null) {
   const dom = new JSDOM(html, { url: 'https://example.test/signup', runScripts: 'outside-only', pretendToBeVisual: true });
   const win = dom.window, messages = [], roots = [];
   let receive;
@@ -104,11 +224,64 @@ function page(html) {
   win.Element.prototype.attachShadow = function(options) { const root = attach.call(this, options); roots.push(root); return root; };
   win.chrome = { runtime: { lastError: null, onMessage: { addListener(fn) { receive = fn; } }, sendMessage(msg, cb) {
     messages.push(msg);
+    if (background) { background.send(msg).then(result => cb?.(result)); return; }
     cb?.(msg.action === 'STAGE_CREDENTIAL' ? { pending: true, user: msg.user, domain: 'example.test' } : { pending: false });
   } } };
   win.eval(source('content.js'));
   return { dom, win, messages, roots, receive: msg => receive(msg, {}, () => {}) };
 }
+
+async function eventually(check) {
+  for (let attempt = 0; attempt < 500; attempt++) {
+    if (check()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail('Timed out waiting for the expected state');
+}
+
+for (const kind of ['username', 'email', 'username-and-email']) {
+  test(`Save click encrypts and restores URL, password and ${kind} after worker/browser restart`, async () => {
+    const w = worker({ realCrypto: true });
+    await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+    const identity = kind === 'email' ? '<input type="email" value="alice@mail.test">' :
+      `<input autocomplete="username" value="alice">${kind === 'username-and-email' ? '<input type="email" value="alice@mail.test">' : ''}`;
+    const p = page(`<form>${identity}<input type="password" value="test-password"></form>`, w);
+    try {
+      p.win.document.querySelector('[type=password]').dispatchEvent(new p.win.Event('change', { bubbles: true }));
+      await eventually(() => p.win.document.querySelector('.reword-save-host'));
+      const prompt = p.roots.at(-1);
+      prompt.querySelector('button').click();
+      await eventually(() => !p.win.document.querySelector('.reword-save-host'));
+      assert.equal(w.local.encVault.includes('test-password'), false);
+      const restored = worker({ local: w.local, realCrypto: true });
+      assert.equal((await restored.send({ action: 'UNLOCK_VAULT', password: 'master-test' }, {})).success, true);
+      const sites = (await restored.send({ action: 'GET_ALL_SITES' }, {})).sites;
+      assert.equal(sites.length, 1);
+      assert.equal(sites[0].url, 'https://example.test');
+      assert.equal(sites[0].accounts[0].user, kind === 'email' ? 'alice@mail.test' : 'alice');
+      assert.equal(sites[0].accounts[0].pass, 'test-password');
+      assert.equal(sites[0].accounts[0].email || '', kind === 'username-and-email' ? 'alice@mail.test' : '');
+      const user = kind === 'email' ? 'alice@mail.test' : 'alice';
+      const email = kind === 'username-and-email' ? 'alice@mail.test' : '';
+      assert.equal((await restored.send({ action: 'STAGE_CREDENTIAL', user, email, pass: 'test-password' })).pending, false);
+      await restored.send({ action: 'LOCK_VAULT' }, {});
+      assert.equal((await restored.send({ action: 'STAGE_CREDENTIAL', user, email, pass: 'test-password' })).pending, false);
+    } finally { p.dom.window.close(); }
+  });
+}
+
+test('one-click fill restores separate username and email and suppresses a duplicate prompt', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  await w.send({ action: 'SAVE_CREDENTIAL', user: 'alice', email: 'alice@mail.test', pass: 'saved-pass' });
+  const p = page('<form><input autocomplete="username"><input type="email"><input type="password"></form>', w);
+  try {
+    p.receive({ action: 'TRIGGER_AUTOFILL', user: 'alice', email: 'alice@mail.test', pass: 'saved-pass' });
+    assert.deepEqual(Array.from(p.win.document.querySelectorAll('form input'), field => field.value), ['alice', 'alice@mail.test', 'saved-pass']);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    assert.equal(p.win.document.querySelector('.reword-save-host'), null);
+  } finally { p.dom.window.close(); }
+});
 
 test('signup shows prompt after typing; captures email rather than display name', async () => {
   const p = page('<form><input name="displayName"><input type="email"><input type="password" autocomplete="new-password"><input type="password" autocomplete="new-password"></form>');

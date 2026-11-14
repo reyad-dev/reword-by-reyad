@@ -275,6 +275,20 @@ fun AccountItem(account: Account, onEdit: () -> Unit, onDelete: () -> Unit) {
                     tint = if (copiedPass) SuccessEmerald else PrimaryViolet, modifier = Modifier.size(19.dp))
             }
         }
+        if (!account.email.isNullOrBlank()) {
+            HorizontalDivider(color = BorderDark.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("البريد الإلكتروني", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Text(account.email, color = TextPrimary)
+                    }
+                }
+                IconButton(onClick = { clipboardManager.setText(AnnotatedString(account.email)) }) {
+                    Icon(Icons.Default.ContentCopy, "نسخ البريد الإلكتروني", tint = AccentCyan, modifier = Modifier.size(19.dp))
+                }
+            }
+        }
         if (account.notes.isNotBlank()) {
             HorizontalDivider(color = BorderDark.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
             Text("ملاحظات", style = MaterialTheme.typography.labelSmall, color = TextMuted)
@@ -324,7 +338,7 @@ fun AccountEditorDialog(
     existingTags: List<String>,
     saving: Boolean,
     onDismiss: () -> Unit,
-    onSave: (siteName: String, siteUrl: String, user: String, pass: String, notes: String, tags: String) -> Unit
+    onSave: (siteName: String, siteUrl: String, user: String, pass: String, notes: String, tags: String, email: String) -> Unit
 ) {
     // Categories of this site (pre-selected) + the vault's existing categories to pick from.
     var selectedTags by rememberSaveable {
@@ -342,6 +356,7 @@ fun AccountEditorDialog(
     var siteName by rememberSaveable { mutableStateOf(site?.name.orEmpty()) }
     var siteUrl by rememberSaveable { mutableStateOf(site?.url.orEmpty()) }
     var user by rememberSaveable { mutableStateOf(account?.user.orEmpty()) }
+    var email by rememberSaveable { mutableStateOf(account?.email.orEmpty()) }
     var pass by rememberSaveable { mutableStateOf(account?.pass.orEmpty()) }
     var notes by rememberSaveable { mutableStateOf(account?.notes.orEmpty()) }
     var showPass by remember { mutableStateOf(false) }
@@ -389,6 +404,9 @@ fun AccountEditorDialog(
                         }
                     }
                 )
+                OutlinedTextField(email, { email = it }, label = { Text("بريد إلكتروني إضافي (اختياري)") },
+                    singleLine = true, colors = fieldColors, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                 Text("التصنيف (اختياري)", style = MaterialTheme.typography.labelMedium, color = TextMuted)
                 if (tagChoices.isEmpty()) {
                     Text("لا توجد تصنيفات بعد — أضف أول تصنيف", style = MaterialTheme.typography.bodySmall, color = TextMuted)
@@ -437,7 +455,7 @@ fun AccountEditorDialog(
                     }
                     if (error == null) {
                         addNewTag() // typed a category but did not press "+"
-                        onSave(siteName, siteUrl, user, pass, notes, selectedTags.joinToString(", "))
+                        onSave(siteName, siteUrl, user, pass, notes, selectedTags.joinToString(", "), email)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet, contentColor = Color.White)

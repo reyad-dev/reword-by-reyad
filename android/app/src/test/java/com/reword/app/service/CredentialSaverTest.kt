@@ -39,14 +39,15 @@ class CredentialSaverTest {
         assertEquals("updated-test-pass", site.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
     }
 
-    @Test fun usernameCaseAndPasswordOnlyScreensUpdateExistingAccount() {
+    @Test fun usernameCaseUpdatesAndUnknownPasswordOnlyCaptureAddsAccount() {
         val root = JsonParser.parseString("""{"sites":[{"id":"s","name":"Example","url":"https://example.test",
           "accounts":[{"id":"a","user":"Alice@Mail.test","pass":"old"}]}]}""").asJsonObject
         assertEquals("s", CredentialSaver.mergeCredential(root, "login.example.test", "com.browser", " alice@mail.test ", "new1"))
         CredentialSaver.mergeCredential(root, "example.test", "com.browser", "", "new2")
         val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
-        assertEquals(1, accounts.size())
-        assertEquals("new2", accounts[0].asJsonObject.get("pass").asString)
+        assertEquals(2, accounts.size())
+        assertEquals("new1", accounts[0].asJsonObject.get("pass").asString)
+        assertEquals("new2", accounts[1].asJsonObject.get("pass").asString)
     }
 
     @Test fun newUsernameOnSameSiteAddsSecondAccount() {
@@ -65,6 +66,66 @@ class CredentialSaverTest {
         val sites = root.getAsJsonArray("sites")
         assertEquals(2, sites.size())
         assertEquals("original-test-pass", sites[0].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
+    }
+
+    @Test fun separateUsernameAndEmailSurviveReloadAndEitherLoginUpdatesTheSameAccount() {
+        var root = JsonParser.parseString("""{"sites":[],"custom":"keep"}""").asJsonObject
+        CredentialSaver.mergeCredential(root, "social.test", "com.browser", "alice", "p1", email = "alice@mail.test")
+        root = JsonParser.parseString(root.toString()).asJsonObject
+        CredentialSaver.mergeCredential(root, "social.test", "com.browser", "ALICE@mail.test", "p2")
+        CredentialSaver.mergeCredential(root, "social.test", "com.browser", "alice", "p3", email = "alice@mail.test")
+        val site = root.getAsJsonArray("sites")[0].asJsonObject
+        val accounts = site.getAsJsonArray("accounts")
+        assertEquals("https://social.test", site.get("url").asString)
+        assertEquals(1, accounts.size())
+        assertEquals("alice", accounts[0].asJsonObject.get("user").asString)
+        assertEquals("alice@mail.test", accounts[0].asJsonObject.get("email").asString)
+        assertEquals("p3", accounts[0].asJsonObject.get("pass").asString)
+        assertEquals("keep", root.get("custom").asString)
+    }
+
+    @Test fun twoNewIdentifiersAddAccountAndPreserveTheOriginal() {
+        val root = JsonParser.parseString("""{"sites":[]}""").asJsonObject
+        CredentialSaver.mergeCredential(root, "social.test", null, "alice", "p1", email = "alice@mail.test")
+        CredentialSaver.mergeCredential(root, "social.test", null, "bob", "p2", email = "bob@mail.test")
+        val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
+        assertEquals(2, accounts.size())
+        assertEquals("p1", accounts[0].asJsonObject.get("pass").asString)
+        assertEquals("bob", accounts[1].asJsonObject.get("user").asString)
+        assertEquals("bob@mail.test", accounts[1].asJsonObject.get("email").asString)
+    }
+
+    @Test fun passwordOnlyCaptureIsIdempotentWithoutReplacingNamedAccounts() {
+        val root = JsonParser.parseString("""{"sites":[]}""").asJsonObject
+        CredentialSaver.mergeCredential(root, "example.test", null, "alice", "p1")
+        CredentialSaver.mergeCredential(root, "example.test", null, "", "p1")
+        CredentialSaver.mergeCredential(root, "example.test", null, "", "p2")
+        CredentialSaver.mergeCredential(root, "example.test", null, "", "p2")
+        val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
+        assertEquals(2, accounts.size())
+        assertEquals("alice", accounts[0].asJsonObject.get("user").asString)
+        assertEquals("p1", accounts[0].asJsonObject.get("pass").asString)
+    }
+
+    @Test fun matchingAccountInSecondSiteReceivesPasswordChange() {
+        val root = JsonParser.parseString("""{"sites":[
+          {"id":"a","url":"https://example.test","accounts":[{"user":"alice","pass":"p1"}]},
+          {"id":"b","url":"https://example.test/login","accounts":[{"user":"bob","pass":"p2"}]}]}""").asJsonObject
+        assertEquals("b", CredentialSaver.mergeCredential(root, "example.test", null, "bob", "new"))
+        val sites = root.getAsJsonArray("sites")
+        assertEquals(1, sites[0].asJsonObject.getAsJsonArray("accounts").size())
+        assertEquals("p1", sites[0].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
+        assertEquals("new", sites[1].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject.get("pass").asString)
+    }
+
+    @Test fun editorPreservesOrExplicitlyEditsTheCapturedEmail() {
+        val root = JsonParser.parseString("""{"sites":[{"id":"s","url":"https://example.test", "accounts":[
+          {"id":"a","user":"alice","email":"alice@mail.test","pass":"p1"}]}]}""").asJsonObject
+        CredentialSaver.applyEdit(root, CredentialSaver.AccountEdit("s", "a", "Ex", "example.test", "alice", "p2", ""))
+        val account = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")[0].asJsonObject
+        assertEquals("alice@mail.test", account.get("email").asString)
+        CredentialSaver.applyEdit(root, CredentialSaver.AccountEdit("s", "a", "Ex", "example.test", "alice", "p2", "", email = "new@mail.test"))
+        assertEquals("new@mail.test", account.get("email").asString)
     }
 
     @Test fun editorAddsAndEditsAccountsWithNotes() {

@@ -42,7 +42,8 @@ data class Account(
     @SerializedName("user") val user: String = "",
     @SerializedName("pass") val pass: String = "",
     @SerializedName("notes") val notes: String = "",
-    @SerializedName("lastModified") val lastModified: Long = 0L
+    @SerializedName("lastModified") val lastModified: Long = 0L,
+    @SerializedName("email") val email: String? = null
 ) : Serializable
 
 data class SyncPayload(

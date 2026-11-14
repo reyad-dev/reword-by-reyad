@@ -136,7 +136,7 @@ class MainActivity : FragmentActivity() {
                             lifecycleScope.launch {
                                 val ok = try {
                                     CredentialSaver.upsertAccount(storage, CredentialSaver.AccountEdit(
-                                        form.siteId, form.accountId, form.siteName, form.siteUrl, form.user, form.pass, form.notes, form.tags))
+                                        form.siteId, form.accountId, form.siteName, form.siteUrl, form.user, form.pass, form.notes, form.tags, form.email))
                                     true
                                 } catch (_: Exception) { false }
                                 Toast.makeText(this@MainActivity, if (ok) "تم الحفظ ✓" else "تعذر الحفظ. افتح الخزنة وحاول مرة أخرى",

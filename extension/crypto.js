@@ -99,6 +99,22 @@ export function siteMatchesDomain(site, pageHost) {
 
 export const sameUser = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
+export function accountMatchesCredential(account, { user, email }) {
+  const aliases = [account.user, account.email].filter(value => String(value || '').trim());
+  const identifiers = [user, email].filter(value => String(value || '').trim());
+  if (!identifiers.length) return false;
+  if (user && email && account.user && !sameUser(account.user, user) && !sameUser(account.user, email)) return false;
+  if (email && account.email && !sameUser(account.email, email)) return false;
+  return identifiers.some(value => aliases.some(alias => sameUser(alias, value)));
+}
+
+export function accountContainsCredential(account, credential) {
+  if (account.pass !== credential.pass) return false;
+  if (!credential.user && !credential.email) return true;
+  const aliases = [account.user, account.email].filter(Boolean);
+  return [credential.user, credential.email].filter(Boolean).every(value => aliases.some(alias => sameUser(alias, value)));
+}
+
 export function extractDomain(url) {
   if (!url) return '';
   try {
