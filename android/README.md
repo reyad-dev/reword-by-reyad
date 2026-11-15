@@ -2,7 +2,9 @@
 
 تطبيق أندرويد متكامل لنظام **ReWord** مع دعم **الملء التلقائي على مستوى النظام بالكامل (System-wide Android Autofill)** والمصادقة البيومترية ومزامنة سحابية مشفرة.
 
-الإصدار الحالي **1.3.3 (versionCode 9)**: [تحميل ReWord-v1.3.3.apk](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.3.3/ReWord-v1.3.3.apk) · [صفحة الإصدار](https://github.com/reyad-dev/reword-by-reyad/releases/tag/v1.3.3). هذا هو ملف التثبيت الرسمي الوحيد المنشور. راجع [خطوات تحديث النسخ القديمة وحماية بيانات الخزنة](artifacts/INSTALL-v1.3.3.md) قبل التثبيت؛ نسختا GitHub القديمتان 1.2.1 و1.2.2 تستخدمان توقيعين مختلفين عن النسخة الحالية.
+الإصدار الحالي **1.4.0 (versionCode 10)**: [تحميل ReWord-v1.4.0.apk](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.4.0/ReWord-v1.4.0.apk) · [صفحة الإصدار](https://github.com/reyad-dev/reword-by-reyad/releases/tag/v1.4.0). راجع [خطوات التحديث وحماية بيانات الخزنة](artifacts/INSTALL-v1.4.0.md) قبل التثبيت؛ نسختا GitHub القديمتان 1.2.1 و1.2.2 تستخدمان توقيعين مختلفين عن النسخة الحالية.
+
+من 1.4.0، يبحث التطبيق تلقائياً عن إصدارات أندرويد الأحدث على GitHub عند فتحه (مرة كل 12 ساعة بعد فحص ناجح)، ويعرض زر تحميل التحديث. الفحص اليدوي متاح من الإعدادات ← تحديث التطبيق. تثبيت 1.4.0 يدوياً مرة واحدة مطلوب لتفعيل الميزة.
 
 ---
 

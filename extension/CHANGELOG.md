@@ -1,4 +1,12 @@
-# Chrome extension 1.3.4
+# Chrome extension 1.3.5
+
+- Shield icons are limited to credential fields in their local login form. Ordinary email, newsletter, phone, full-name, search, message and comment inputs are excluded.
+- Username-first sign-in pages still work with explicit username autocomplete or a small local sign-in form.
+- An unrelated form is never associated with a password elsewhere on the page. Filling a login leaves newsletter/contact inputs untouched.
+- SPA fields lose stale shields when their purpose changes or their associated password is removed.
+- Verified with 31 automated tests and Chrome checks for ordinary fields, scrolling, clipping, RTL and popup CSP.
+
+## Chrome extension 1.3.4
 
 - Fixed repeated save prompts for existing credentials, including locked vaults after the first unlock in a browser session.
 - New login identities create separate accounts. Password updates match the saved username or email for the site.
@@ -18,17 +26,17 @@
 
 ## تحديث الإضافة
 
-1. نزّل [ReWord-Chrome-1.3.4.zip](https://github.com/reyad-dev/reword-by-reyad/releases/download/chrome-v1.3.4/ReWord-Chrome-1.3.4.zip) وفك الضغط.
+1. نزّل [ReWord-Chrome-1.3.5.zip](https://github.com/reyad-dev/reword-by-reyad/releases/download/chrome-v1.3.5/ReWord-Chrome-1.3.5.zip) وفك الضغط.
 2. استبدل الملفات داخل نفس مجلد الإضافة الذي حمّلته سابقًا. لا تحذف الإضافة من Chrome.
 3. افتح `chrome://extensions` واضغط زر إعادة التحميل ↻ على بطاقة ReWord.
-4. تأكد أن الإصدار أصبح `1.3.4`، ثم أعد تحميل صفحات المواقع المفتوحة وافتح الخزنة مرة في جلسة المتصفح.
+4. تأكد أن الإصدار أصبح `1.3.5`، ثم أعد تحميل صفحات المواقع المفتوحة وافتح الخزنة مرة في جلسة المتصفح.
 5. امسح الأخطاء القديمة من صفحة أخطاء الإضافة، ثم افتحها وجرّب إضافة حساب والملء التلقائي.
 
 للتثبيت لأول مرة: فعّل وضع المطوّر، ثم اختر **Load unpacked** وحدد المجلد الذي يحتوي على `manifest.json`.
 
 ## Validation
 
-- 25 automated regression tests: `node --test extension/tests/autofill.test.cjs` (requires `jsdom@26`).
+- 31 automated regression tests: `node --test extension/tests/autofill.test.cjs` (requires `jsdom@26`).
 - Chrome 156 headless: popup under strict CSP, quick-add focus, favicon error fallbacks, immediate shield alignment during page/container scrolling, clipping/reappearance and RTL. Run `node extension/tests/browser-check.cjs` (requires `playwright`, and Chrome at the Windows path specified in the script).
 - `node extension/tests/credential-storage.browser.cjs` loads the real extension in a temporary Chromium profile, clicks Save/Update, restarts the browser, and verifies encrypted storage, credential recovery, duplicate suppression and separate new accounts. Requires Playwright Chromium. Set `REWORD_EXTENSION_PATH` to validate an extracted release package.
 - Tests use synthetic credentials. Cloud sync and a live user vault require separate validation.

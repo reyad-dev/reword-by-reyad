@@ -44,7 +44,7 @@ const server = http.createServer((req, res) => {
     console.log('PASS: Chrome popup under strict CSP, quick-add focus, both favicon fallbacks; no runtime/CSP errors.');
 
     const scroll = await browser.newPage();
-    await scroll.setContent('<style>body{height:3000px;margin:0}#panel{position:absolute;top:350px;left:100px;height:240px;width:400px;overflow:auto}form{height:1000px;padding-top:100px}input{height:40px;width:300px}</style><div id="panel"><form><input type="email"></form></div>');
+    await scroll.setContent('<style>body{height:3000px;margin:0}#panel{position:absolute;top:350px;left:100px;height:240px;width:400px;overflow:auto}form{height:1000px;padding-top:100px}input{height:40px;width:300px}</style><div id="panel"><form><input type="email" autocomplete="username"></form></div>');
     await scroll.addStyleTag({ path: path.join(extension, 'content.css') });
     await scroll.evaluate(() => { window.chrome = { runtime: { lastError: null, onMessage: { addListener() {} }, sendMessage(msg, cb) { cb?.({ pending: false }); } } }; });
     await scroll.addScriptTag({ path: path.join(extension, 'content.js') });
@@ -78,5 +78,17 @@ const server = http.createServer((req, res) => {
     const delta = await scroll.evaluate(() => document.querySelector('.reword-autofill-btn').getBoundingClientRect().left - document.querySelector('input').getBoundingClientRect().left);
     assert.equal(delta, 6);
     console.log('PASS: Chrome page/container scroll alignment, clipping/reappearance, RTL; geometry is never animated.');
+
+    const fields = await browser.newPage();
+    await fields.setContent(`<style>input{width:260px;height:40px;display:block}</style>
+      <form id="newsletter"><input type="email"><button>Subscribe</button></form>
+      <form id="login"><input autocomplete="username"><input type="password"></form>
+      <input type="search" name="email"><input name="full_name"><input type="email">`);
+    await fields.evaluate(() => { window.chrome = { runtime: { lastError: null, onMessage: { addListener() {} }, sendMessage(msg, cb) { cb?.({ pending: false }); } } }; });
+    await fields.addScriptTag({ path: path.join(extension, 'content.js') });
+    assert.equal(await fields.locator('.reword-autofill-btn').count(), 2);
+    await fields.locator('#login').evaluate(el => el.remove());
+    await fields.waitForFunction(() => document.querySelectorAll('.reword-autofill-btn').length === 0);
+    console.log('PASS: Chrome ordinary email/name/search/newsletter fields have no shields; only login fields do; removed login clears shields.');
   } finally { await browser.close(); server.close(); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });

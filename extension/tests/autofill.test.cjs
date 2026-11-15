@@ -320,6 +320,71 @@ test('open shadow roots expose credential fields without attaching to search', (
   } finally { p.dom.window.close(); }
 });
 
+test('ordinary email, name, phone, newsletter and search inputs have no shields', () => {
+  const p = page(`<input type="email"><input name="full_name"><input autocomplete="name">
+    <input type="search" name="email"><input name="user_query"><input type="tel" name="phone">
+    <form id="newsletter"><input type="email"><button>Subscribe</button></form>`);
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 0);
+  } finally { p.dom.window.close(); }
+});
+
+test('a password in another form never adds shields or fills an unrelated form', () => {
+  const p = page(`<form id="newsletter"><input type="email"></form>
+    <form id="login"><input autocomplete="username"><input type="password"></form>`);
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 2);
+    p.receive({ action: 'TRIGGER_AUTOFILL', user: 'alice', pass: 'test-password' });
+    assert.equal(p.win.document.querySelector('#newsletter input').value, '');
+    assert.equal(p.win.document.querySelector('#login input').value, 'alice');
+  } finally { p.dom.window.close(); }
+});
+
+test('full name and search stay excluded beside a password; login email remains eligible', () => {
+  const p = page(`<form><label>Full name<input name="user_full_name"></label>
+    <input autocomplete="given-name"><input type="search" name="email">
+    <input type="email"><input type="password"></form>`);
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 2);
+    p.receive({ action: 'TRIGGER_AUTOFILL', user: 'alice@test', pass: 'test-password' });
+    assert.equal(p.win.document.querySelector('[name="user_full_name"]').value, '');
+    assert.equal(p.win.document.querySelector('[type="search"]').value, '');
+  } finally { p.dom.window.close(); }
+});
+
+test('email-only sign-in step is supported using local form context', () => {
+  const p = page('<form><h2>Sign in</h2><input type="email"><button>Next</button></form>');
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 1);
+  } finally { p.dom.window.close(); }
+});
+
+test('form-less sign-in with nested field wrappers still fills username and password', () => {
+  const p = page(`<div><div><input type="email"></div><div><input type="password"></div></div>
+    <form id="newsletter"><input type="email"></form>`);
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 2);
+    p.receive({ action: 'TRIGGER_AUTOFILL', user: 'alice@test', pass: 'test-password' });
+    assert.equal(p.win.document.querySelector('input').value, 'alice@test');
+    assert.equal(p.win.document.querySelector('[type="password"]').value, 'test-password');
+    assert.equal(p.win.document.querySelector('#newsletter input').value, '');
+  } finally { p.dom.window.close(); }
+});
+
+test('SPA fields lose stale shields when their meaning changes or the password disappears', async () => {
+  const p = page('<form><input type="email"><input type="password"></form>');
+  try {
+    assert.equal(p.win.document.querySelectorAll('.reword-autofill-btn').length, 2);
+    p.win.document.querySelector('[type="password"]').remove();
+    await eventually(() => p.win.document.querySelectorAll('.reword-autofill-btn').length === 0);
+    const field = p.win.document.querySelector('input');
+    field.autocomplete = 'username';
+    await eventually(() => p.win.document.querySelectorAll('.reword-autofill-btn').length === 1);
+    field.type = 'search';
+    await eventually(() => p.win.document.querySelectorAll('.reword-autofill-btn').length === 0);
+  } finally { p.dom.window.close(); }
+});
+
 test('one-click fill leaves new-password and OTP fields untouched', () => {
   const p = page('<form><input type="email"><input type="password" autocomplete="new-password"><input type="password" autocomplete="one-time-code"></form>');
   try {
@@ -346,7 +411,7 @@ test('parallel confirmed saves do not overwrite another account', async () => {
 });
 
 test('shield follows page and container scrolling immediately, hides when clipped, then returns', () => {
-  const p = page('<div id="panel" style="overflow:auto"><input type="email"></div>');
+  const p = page('<div id="panel" style="overflow:auto"><input type="email" autocomplete="username"></div>');
   try {
     const field = p.win.document.querySelector('input');
     const panel = p.win.document.getElementById('panel');

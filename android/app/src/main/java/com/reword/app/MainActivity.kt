@@ -21,6 +21,9 @@ import com.reword.app.service.CredentialSaver
 import com.reword.app.ui.screens.ConnectScreen
 import com.reword.app.ui.screens.SettingsScreen
 import com.reword.app.ui.screens.VaultScreen
+import com.reword.app.ui.components.rememberAppUpdates
+import com.reword.app.ui.components.AppUpdateDialog
+import com.reword.app.ui.components.openAppUpdate
 import com.reword.app.ui.theme.BgDark
 import com.reword.app.ui.theme.ReWordTheme
 import kotlinx.coroutines.launch
@@ -56,6 +59,8 @@ class MainActivity : FragmentActivity() {
 
     @Composable
     private fun AppNavigation() {
+        val updates = rememberAppUpdates()
+        AppUpdateDialog(updates)
         var currentScreen by remember {
             mutableStateOf<Screen>(
                 if (SecureStorage.activeVault != null) Screen.VaultView else Screen.Connect
@@ -161,6 +166,11 @@ class MainActivity : FragmentActivity() {
                         syncId = storage.syncId,
                         workerUrl = storage.workerUrl,
                         isBiometricEnabled = isBiometricEnabled,
+                        updateChecking = updates.checking,
+                        updateStatus = updates.status,
+                        updateAvailable = updates.available != null,
+                        onCheckUpdate = { updates.check(this@MainActivity, manual = true) },
+                        onDownloadUpdate = { updates.available?.let { openAppUpdate(this@MainActivity, it) } },
                         onToggleBiometric = { enable ->
                             val mp = SecureStorage.activeMasterPassword
                             if (enable && mp != null) {

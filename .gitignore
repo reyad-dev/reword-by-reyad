@@ -25,6 +25,7 @@ __pycache__/
 
 # Android / Gradle
 android/.gradle/
+android/.kotlin/
 android/**/build/
 android/local.properties
 android/.idea/caches/

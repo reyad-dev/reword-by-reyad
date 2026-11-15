@@ -32,11 +32,27 @@
     return found;
   };
   const isInternal = field => Boolean(field?.closest?.('[class^="reword-"], [class*=" reword-"]'));
-  function isUsername(field) {
+  function fieldInfo(field) {
+    return [field.name, field.id, field.autocomplete, field.placeholder, field.getAttribute('aria-label'),
+      ...Array.from(field.labels || [], label => label.textContent)].join(' ');
+  }
+  function isIdentityCandidate(field) {
     if (!field || isInternal(field) || field.disabled || field.readOnly) return false;
-    const info = [field.name, field.id, field.autocomplete, field.placeholder, field.getAttribute('aria-label')].join(' ');
-    if (/search|query|otp|one-time|verification|confirm|first.?name|last.?name|بحث|تحقق/i.test(info)) return false;
+    if (!/^(text|email|tel|number)$/.test(field.type)) return false;
+    const info = fieldInfo(field);
+    if (/search|query|otp|one-time|verification|confirm|first.?name|last.?name|full.?name|given.?name|family.?name|display.?name|nickname|newsletter|subscribe|comment|message|address|بحث|تحقق|الاسم الكامل|الاسم الأول|اسم العائلة|تعليق|رسالة|نشرة/i.test(info)) return false;
+    if (/(^|\s)(name|q)(\s|$)/i.test(info)) return false;
     return field.type === 'email' || /username|user.?id|email|e-mail|login|phone|mobile|بريد|اسم.?المستخدم|هاتف/i.test(info);
+  }
+  function isUsername(field) {
+    if (!isIdentityCandidate(field)) return false;
+    // Explicit username semantics support the first step of multi-page sign-ins.
+    if (field.autocomplete.split(/\s+/).includes('username')) return true;
+    if (associatedPassword(field)) return true;
+    const scope = field.form || field.closest('[role="form"], dialog, section');
+    if (!scope || inputs(scope).filter(input => /^(text|email|tel|number)$/.test(input.type) && isFieldVisible(input)).length > 3) return false;
+    return /log\s*in|sign\s*in|تسجيل الدخول|تسجيل دخول|دخول/.test(
+      [scope.id, scope.getAttribute('name'), scope.getAttribute('action'), scope.textContent].join(' ').toLowerCase());
   }
   function passwordFields(root = document) {
     return inputs(root).filter(field => !isInternal(field) && !field.disabled &&
@@ -47,8 +63,23 @@
     return field.autocomplete === 'new-password' || /(new|confirm|repeat|create)[_ -]*(password|passwd|pwd)|(password|passwd|pwd)[_ -]*(new|confirm|repeat)/i.test(
       [field.name, field.id].join(' '));
   }
+  function credentialScope(field) {
+    if (field?.form) return field.form;
+    const explicit = field?.closest('[role="form"], dialog, section');
+    if (explicit) return explicit;
+    // Form-less SPAs often put each field inside its own wrapper. Find their small common group.
+    let parent = field?.parentElement;
+    while (parent && parent !== document.body && parent !== document.documentElement) {
+      const local = inputs(parent).filter(input => !input.form && !isInternal(input) && isFieldVisible(input));
+      if (local.length <= 6 && local.some(input => /^(text|email|tel|number)$/.test(input.type)) &&
+          passwordFields(parent).some(password => !password.form)) return parent;
+      parent = parent.parentElement;
+    }
+    return field?.parentElement || field?.getRootNode?.() || document;
+  }
   function associatedPassword(field) {
-    return passwordFields(field.form || field.getRootNode())[0] || null;
+    // Never associate a newsletter/search form with a password elsewhere on the page.
+    return passwordFields(credentialScope(field)).find(password => password.form === field.form) || null;
   }
 
   // 5-Layer Bulletproof visibility check
@@ -152,20 +183,21 @@
 
   // Find the username field associated with a password field
   function findUsernameField(passField) {
-    const candidates = inputs(passField.form || passField.getRootNode()).filter(field =>
+    const scope = credentialScope(passField);
+    const candidates = inputs(scope).filter(field =>
       field !== passField && field.type !== 'password' && !isInternal(field) && isFieldVisible(field) &&
-      /^(text|email|tel|number)$/.test(field.type));
+      field.form === passField.form && /^(text|email|tel|number)$/.test(field.type));
     const explicit = candidates.filter(isUsername);
     if (explicit.length) return explicit.find(field => field.type === 'email') || explicit[0];
     const before = candidates.filter(field => field.compareDocumentPosition(passField) & Node.DOCUMENT_POSITION_FOLLOWING);
     // An unlabelled text input immediately before the password is a useful fallback in a login form.
-    return before.filter(field => !/search|otp|code|first.?name|last.?name|address/i.test(
-      [field.name, field.id, field.autocomplete, field.placeholder].join(' '))).pop() || null;
+    const unlabelled = before.filter(field => !fieldInfo(field).trim() && field.type === 'text');
+    return candidates.length === 1 && unlabelled.length === 1 ? unlabelled[0] : null;
   }
 
   function identityFields(field) {
-    const root = field?.form || field?.getRootNode?.() || document;
-    const candidates = inputs(root).filter(input => isUsername(input) && isFieldVisible(input));
+    const root = credentialScope(field);
+    const candidates = inputs(root).filter(input => input.form === field?.form && isUsername(input) && isFieldVisible(input));
     const email = candidates.find(input => input.type === 'email' || input.autocomplete === 'email') ||
       candidates.find(input => /email|e-mail|بريد/i.test(
         [input.name, input.id, input.placeholder, input.getAttribute('aria-label')].join(' ')) &&
@@ -467,18 +499,20 @@
   // Scan page for login fields
   function scanPage() {
     cleanDeadBadges();
-
+    const eligible = new Set();
     const passInputs = passwordFields();
     passInputs.forEach((passInput) => {
       if (isFieldVisible(passInput)) {
-        attachBadge(passInput);
+        eligible.add(passInput);
         const userInput = findUsernameField(passInput);
         if (userInput && isFieldVisible(userInput)) {
-          attachBadge(userInput);
+          eligible.add(userInput);
         }
       }
     });
-    inputs().filter(field => isUsername(field) && isFieldVisible(field)).forEach(attachBadge);
+    inputs().filter(field => isUsername(field) && isFieldVisible(field)).forEach(field => eligible.add(field));
+    for (const field of activeBadges.keys()) if (!eligible.has(field)) removeBadge(field);
+    eligible.forEach(attachBadge);
   }
 
   // Capture only credential fields; consent is always required before writing to the vault.
@@ -671,7 +705,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['style', 'class', 'hidden', 'type', 'aria-hidden', 'disabled']
+    attributeFilter: ['style', 'class', 'hidden', 'type', 'aria-hidden', 'disabled', 'readonly', 'autocomplete', 'name', 'id', 'placeholder', 'aria-label', 'form']
   });
 
   // Periodic safety check to ensure dead badges never linger after login or SPA transitions

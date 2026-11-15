@@ -1,0 +1,2 @@
+184282ad2bd9eee2ea9955c4251a31589d0555ffc1bf85ee009f42cf74cc1d74  ReWord-v1.4.0.apk
+ec61a2e7c1f0425373ad70a1067ef2ebef0a24098ee70cb8ff82f268b21dfc02  ReWord-Chrome-1.3.5.zip

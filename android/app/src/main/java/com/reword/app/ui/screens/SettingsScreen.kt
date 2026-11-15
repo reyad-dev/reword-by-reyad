@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.reword.app.ui.theme.*
+import com.reword.app.BuildConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +38,11 @@ fun SettingsScreen(
     syncId: String?,
     workerUrl: String?,
     isBiometricEnabled: Boolean,
+    updateChecking: Boolean,
+    updateStatus: String,
+    updateAvailable: Boolean,
+    onCheckUpdate: () -> Unit,
+    onDownloadUpdate: () -> Unit,
     onToggleBiometric: (Boolean) -> Unit,
     onLockVault: () -> Unit,
     onDisconnect: () -> Unit,
@@ -210,6 +216,26 @@ fun SettingsScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text("تحديث التطبيق", style = MaterialTheme.typography.titleMedium,
+                color = AccentCyan, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = SurfaceCard), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("ReWord ${BuildConfig.VERSION_NAME}", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(if (updateChecking) "جارٍ البحث عن تحديثات…" else updateStatus,
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(onClick = onCheckUpdate, enabled = !updateChecking, modifier = Modifier.fillMaxWidth()) {
+                        Text("التحقق من التحديثات")
+                    }
+                    if (updateAvailable) {
+                        Button(onClick = onDownloadUpdate, modifier = Modifier.fillMaxWidth()) { Text("تحميل التحديث من GitHub") }
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── Section 6: Lock & Disconnect ──

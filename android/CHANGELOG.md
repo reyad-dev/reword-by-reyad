@@ -1,5 +1,16 @@
 # Android releases
 
+## 1.4.0 (versionCode 10) - 2026-11-15
+
+- Checks public GitHub releases when the app resumes, at most once per 12 hours after a successful check. A new Android release displays an optional Arabic update dialog with a direct APK download button.
+- Settings displays the installed version, manual update checking, offline/error feedback and a download button for available updates.
+- Extension releases, drafts, prereleases, older/equal versions, and releases without the exact official APK asset are ignored. Versions are compared numerically, including 1.10 versus 1.9.
+- No vault information is sent to GitHub. Downloading opens the browser; the user confirms installation in Android.
+
+Validation: `testDebugUnitTest assembleDebug lintDebug` passed (39 tests). APK certificate matches 1.3.3. Android update UI has not been tested on a physical phone.
+
+Distribution: [ReWord-v1.4.0.apk](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.4.0/ReWord-v1.4.0.apk). See [installation and future release instructions](artifacts/INSTALL-v1.4.0.md).
+
 ## 1.3.3 (versionCode 9) - 2026-11-09
 
 Android:
