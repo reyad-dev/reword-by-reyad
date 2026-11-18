@@ -34,5 +34,5 @@ android/.idea/deploymentTargetSelector.xml
 android/.idea/deviceManager.xml
 android/**/*.iml
 *.apk
-!ReWord-v*.apk
+!/ReWord-v*.apk
 
