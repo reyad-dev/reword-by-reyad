@@ -1,5 +1,12 @@
 # Android releases
 
+## 1.4.1 (versionCode 11) - 2026-11-21
+
+- On Android 9 and newer, the ReWord confirmation distinguishes a new login from a password change after the system autofill prompt. A new identity adds a separate account. A matching username or email updates the existing account's password.
+- If several accounts share an email, entering a new username with that email adds a separate login. A password change requires an unambiguous account match.
+
+- [Download the current APK](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.4.1/ReWord-v1.4.1.apk)
+
 ## 1.4.0 (versionCode 10) - 2026-11-15
 
 - Checks public GitHub releases when the app resumes, at most once per 12 hours after a successful check. A new Android release displays an optional Arabic update dialog with a direct APK download button.
@@ -9,7 +16,7 @@
 
 Validation: `testDebugUnitTest assembleDebug lintDebug` passed (39 tests). APK certificate matches 1.3.3. Android update UI has not been tested on a physical phone.
 
-Distribution: [ReWord-v1.4.0.apk](https://github.com/reyad-dev/reword-by-reyad/releases/download/v1.4.0/ReWord-v1.4.0.apk). See [installation and future release instructions](artifacts/INSTALL-v1.4.0.md).
+[Installation and future release instructions](artifacts/INSTALL-v1.4.0.md).
 
 ## 1.3.3 (versionCode 9) - 2026-11-09
 

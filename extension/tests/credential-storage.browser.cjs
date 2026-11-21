@@ -101,7 +101,12 @@ async function confirmSave(context, page, expectedLabel = 'حفظ') {
     assert.deepEqual(result.sites[0].accounts.map(account => account.user), ['alice', 'bob']);
     assert.equal(result.sites[0].accounts[0].pass, 'alice-test-password');
     const accountId = result.sites[0].accounts[0].id;
+    await send(vaultPage, { action: 'LOCK_VAULT' });
     const changed = await loginPage(context, 'alice', 'alice@mail.test', 'alice-updated-password');
+    await changed.locator('.reword-save-host').waitFor();
+    await changed.locator('.reword-save-host').evaluate(element => { element.dataset.oldPrompt = 'true'; });
+    assert.equal((await send(vaultPage, { action: 'UNLOCK_VAULT', password })).success, true);
+    await changed.locator('.reword-save-host[data-old-prompt]').waitFor({ state: 'detached' });
     await confirmSave(context, changed, 'تحديث');
     const updated = await send(vaultPage, { action: 'GET_ALL_SITES' });
     assert.equal(updated.sites[0].accounts.length, 2);

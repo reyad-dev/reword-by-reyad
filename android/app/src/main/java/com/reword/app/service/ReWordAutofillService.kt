@@ -51,13 +51,14 @@ class ReWordAutofillService : AutofillService() {
                 val contexts = request.fillContexts.map { parseStructure(it.structure, CancellationSignal(), true) }
                 val latest = contexts.lastOrNull() ?: error("Missing structure")
                 val related = contexts.filter { it.packageName == latest.packageName && it.webDomain == latest.webDomain }
-                val user = related.asReversed().firstNotNullOfOrNull { p ->
-                    (p.usernameFields.filter { it !in p.emailFields } + p.emailFields)
-                        .firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
-                }.orEmpty().trim()
-                val email = related.asReversed().firstNotNullOfOrNull { p ->
-                    p.emailFields.firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotBlank) }
-                }.orEmpty().trim().takeUnless { it.equals(user, true) }.orEmpty()
+                val identity = related.asReversed().firstNotNullOfOrNull { p ->
+                    val email = p.emailFields.firstNotNullOfOrNull { p.values[it]?.trim()?.takeIf(String::isNotEmpty) }
+                    val username = p.usernameFields.filter { it !in p.emailFields }
+                        .firstNotNullOfOrNull { p.values[it]?.trim()?.takeIf(String::isNotEmpty) }
+                    val user = username ?: email ?: return@firstNotNullOfOrNull null
+                    user to email.orEmpty().takeUnless { it.equals(user, true) }.orEmpty()
+                }
+                val (user, email) = identity ?: ("" to "")
                 val pass = related.asReversed().firstNotNullOfOrNull { p ->
                     (p.newPasswordFields + p.passwordFields).firstNotNullOfOrNull { p.values[it]?.takeIf(String::isNotEmpty) }
                 }
@@ -67,10 +68,9 @@ class ReWordAutofillService : AutofillService() {
                     return@launch
                 }
                 val label = AutofillResponses.appLabel(this@ReWordAutofillService, latest.packageName)
-                if (SecureStorage.activeMasterPassword != null) {
-                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass, label, email)
-                    callback.onSuccess()
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                // Android's prompt treats any edited autofilled field as an update.
+                // Confirm the actual account operation in ReWord after Android's prompt.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     val intent = Intent(this@ReWordAutofillService, AutofillAuthActivity::class.java).apply {
                         data = Uri.parse("reword-save:${UUID.randomUUID()}")
                         putExtra(AutofillAuthActivity.EXTRA_SAVE, true)
@@ -83,6 +83,9 @@ class ReWordAutofillService : AutofillService() {
                     }
                     callback.onSuccess(PendingIntent.getActivity(this@ReWordAutofillService, 0, intent,
                         PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE).intentSender)
+                } else if (SecureStorage.activeMasterPassword != null) {
+                    CredentialSaver.save(SecureStorage(this@ReWordAutofillService), latest.webDomain, latest.packageName, user, pass, label, email)
+                    callback.onSuccess()
                 } else callback.onFailure("افتح خزنة ReWord ثم أعد محاولة الحفظ")
             } catch (_: Exception) {
                 callback.onFailure("تعذر حفظ بيانات الدخول في ReWord")

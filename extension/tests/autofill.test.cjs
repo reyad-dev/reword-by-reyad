@@ -42,7 +42,8 @@ function worker({ local = {}, session = {}, realCrypto = false } = {}) {
     storage: { local: area(local), session: area(session) },
     alarms: { onAlarm: { addListener() {} }, create() {}, async clear() {} },
     tabs: { onRemoved: { addListener() {} }, query(q, callback) { callback([]); } },
-    runtime: { onMessage: { addListener(fn) { listener = fn; } }, onInstalled: { addListener() {} } }
+    runtime: { onMessage: { addListener(fn) { listener = fn; } }, onInstalled: { addListener() {} } },
+    action: { async openPopup() {} }
   };
   vm.runInNewContext(source('background.js').replace(/^import .*;$/m, ''), {
     chrome, console, structuredClone, URL, Date, Math, crypto: globalThis.crypto, TextEncoder,
@@ -224,8 +225,12 @@ function page(html, background = null) {
   win.Element.prototype.attachShadow = function(options) { const root = attach.call(this, options); roots.push(root); return root; };
   win.chrome = { runtime: { lastError: null, onMessage: { addListener(fn) { receive = fn; } }, sendMessage(msg, cb) {
     messages.push(msg);
-    if (background) { background.send(msg).then(result => cb?.(result)); return; }
-    cb?.(msg.action === 'STAGE_CREDENTIAL' ? { pending: true, user: msg.user, domain: 'example.test' } : { pending: false });
+    if (background) {
+      const result = background.send(msg);
+      return cb ? void result.then(cb) : result;
+    }
+    const result = msg.action === 'STAGE_CREDENTIAL' ? { pending: true, user: msg.user, domain: 'example.test' } : { pending: false };
+    return cb ? cb(result) : Promise.resolve(result);
   } } };
   win.eval(source('content.js'));
   return { dom, win, messages, roots, receive: msg => receive(msg, {}, () => {}) };
@@ -238,6 +243,32 @@ async function eventually(check) {
   }
   assert.fail('Timed out waiting for the expected state');
 }
+
+test('locked save opens the vault and refreshes to Update before confirming', async () => {
+  const w = worker();
+  await w.send({ action: 'SETUP_NEW_VAULT', password: 'master-test' }, {});
+  await w.send({ action: 'SAVE_CREDENTIAL', user: 'alice', pass: 'old-pass' });
+  await w.send({ action: 'LOCK_VAULT' }, {});
+  const p = page('<form><input autocomplete="username"><input type="password"></form>', w);
+  const button = () => p.roots.at(-1)?.querySelector('button');
+  try {
+    const [user, pass] = p.win.document.querySelectorAll('form input');
+    user.value = 'alice';
+    pass.value = 'new-pass';
+    pass.dispatchEvent(new p.win.Event('change', { bubbles: true }));
+    await eventually(() => button()?.textContent === 'فتح الخزنة');
+    button().click();
+    await eventually(() => p.messages.some(message => message.action === 'OPEN_POPUP'));
+    assert.equal(p.messages.some(message => message.action === 'CONFIRM_PENDING_CREDENTIAL'), false);
+    await w.send({ action: 'UNLOCK_VAULT', password: 'master-test' }, {});
+    p.receive({ action: 'VAULT_UNLOCKED' });
+    await eventually(() => button()?.textContent === 'تحديث');
+    assert.equal(JSON.parse(w.local.encVault).sites[0].accounts[0].pass, 'old-pass');
+    button().click();
+    await eventually(() => !p.win.document.querySelector('.reword-save-host'));
+    assert.equal(JSON.parse(w.local.encVault).sites[0].accounts[0].pass, 'new-pass');
+  } finally { p.dom.window.close(); }
+});
 
 for (const kind of ['username', 'email', 'username-and-email']) {
   test(`Save click encrypts and restores URL, password and ${kind} after worker/browser restart`, async () => {

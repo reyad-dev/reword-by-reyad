@@ -42,12 +42,13 @@ class AutofillUnlockModel : ViewModel() {
     var saving = false
         private set
 
-    fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, label: String?, email: String) {
+    internal fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String,
+                      label: String?, email: String, decision: CredentialSaver.SaveDecision) {
         if (saving || saved.value != null) return
         saving = true
         viewModelScope.launch {
             saved.value = try {
-                CredentialSaver.save(storage, domain, app, user, pass, label, email)
+                CredentialSaver.save(storage, domain, app, user, pass, label, email, decision)
                 Result.success(Unit)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { Result.failure(e) }
@@ -259,11 +260,8 @@ class AutofillAuthActivity : FragmentActivity() {
     private fun chooseAccount(vault: Vault) {
         if (isFinishing || isDestroyed) return
         if (saveMode) {
-            phase = "saving"
-            dialog?.dismiss()
-            model.save(storage, intent.getStringExtra(EXTRA_DOMAIN), intent.getStringExtra(EXTRA_PACKAGE),
-                intent.getStringExtra("save_user").orEmpty(), intent.getStringExtra("save_pass").orEmpty(), appLabel,
-                intent.getStringExtra("save_email").orEmpty())
+            if (model.saving || model.saved.value != null) return
+            showSaveConfirmation(vault)
             return
         }
         phase = "chooser"
@@ -287,6 +285,32 @@ class AutofillAuthActivity : FragmentActivity() {
             return
         }
         showChooser(items, matches, linkKey)
+    }
+
+    private fun showSaveConfirmation(vault: Vault) {
+        val domain = intent.getStringExtra(EXTRA_DOMAIN)
+        val pkg = intent.getStringExtra(EXTRA_PACKAGE)
+        val user = intent.getStringExtra("save_user").orEmpty()
+        val pass = intent.getStringExtra("save_pass").orEmpty()
+        val email = intent.getStringExtra("save_email").orEmpty()
+        val linkKey = AutofillSiteMatcher.linkKey(domain, pkg)
+        val decision = CredentialSaver.saveDecision(vault, domain, pkg, user, pass, storage.getLinkedSiteId(linkKey), appLabel, email)
+        val (title, action) = when (decision.action) {
+            CredentialSaver.Action.ADD -> "حفظ حساب جديد في ReWord؟" to "حفظ"
+            CredentialSaver.Action.UPDATE -> "تحديث كلمة المرور في ReWord؟" to "تحديث"
+            CredentialSaver.Action.UNCHANGED -> {
+                Toast.makeText(this, "بيانات الدخول محفوظة بالفعل في ReWord", Toast.LENGTH_SHORT).show()
+                finish()
+                return
+            }
+        }
+        val site = domain ?: appLabel ?: pkg.orEmpty()
+        val identity = user.ifBlank { email }.ifBlank { "بدون اسم مستخدم" }
+        dialog?.dismiss()
+        dialog = AlertDialog.Builder(this).setTitle(title).setMessage("$site\n$identity")
+            .setPositiveButton(action) { _, _ -> model.save(storage, domain, pkg, user, pass, appLabel, email, decision) }
+            .setNegativeButton("ليس الآن") { _, _ -> finish() }
+            .setOnCancelListener { finish() }.show()
     }
 
     /** Searchable account picker: typing filters by site name, URL or username. */

@@ -1,10 +1,37 @@
 package com.reword.app.service
 
+import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.reword.app.model.Vault
 import org.junit.Assert.*
 import org.junit.Test
 
 class CredentialSaverTest {
+    @Test fun thirdRedditUserIsAddedAndExistingEmailUpdatesItsAccount() {
+        val root = JsonParser.parseString("""{"sites":[{"id":"reddit","url":"https://reddit.com","accounts":[
+          {"id":"a","user":"alice","email":"alice@mail.test","pass":"first"},
+          {"id":"b","user":"bob","email":"bob@mail.test","pass":"second"}]}]}""").asJsonObject
+        fun decision(user: String, pass: String, email: String = "") = CredentialSaver.saveDecision(
+            Gson().fromJson(root, Vault::class.java), "www.reddit.com", "com.android.chrome",
+            user, pass, null, null, email
+        )
+
+        val add = decision("charlie", "third", "bob@mail.test")
+        assertEquals(CredentialSaver.Action.ADD, add.action)
+        CredentialSaver.mergeCredential(root, "www.reddit.com", "com.android.chrome", "charlie", "third",
+            email = "bob@mail.test", expected = add)
+        val update = decision(" ALICE@mail.test ", "changed")
+        assertEquals(CredentialSaver.Action.UPDATE, update.action)
+        assertEquals("a", update.accountId)
+        CredentialSaver.mergeCredential(root, "www.reddit.com", "com.android.chrome", " ALICE@mail.test ", "changed",
+            expected = update)
+
+        val accounts = root.getAsJsonArray("sites")[0].asJsonObject.getAsJsonArray("accounts")
+        assertEquals(listOf("alice", "bob", "charlie"), accounts.map { it.asJsonObject.get("user").asString })
+        assertEquals(listOf("changed", "second", "third"), accounts.map { it.asJsonObject.get("pass").asString })
+        assertEquals(CredentialSaver.Action.UNCHANGED, decision("alice", "changed").action)
+    }
+
     @Test fun updatePreservesUnknownFieldsNotesAndOtherAccounts() {
         val root = JsonParser.parseString("""{
           "meta":{"hint":"keep","custom":42},"extra":{"enabled":true},

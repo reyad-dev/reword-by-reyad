@@ -147,12 +147,9 @@ async function lockVault() {
   IN_MEMORY_VAULT = null;
   IN_MEMORY_MP = null;
   try {
-    // Pending consent survives unlocking so the visible Save button remains usable.
-    const current = await chrome.storage.session.get(null);
-    const keep = Object.fromEntries(Object.entries(current).filter(([key]) =>
-      key === 'credSalt' || key === 'credIndex' || key.startsWith('capture:')));
-    await chrome.storage.session.clear();
-    await chrome.storage.session.set(keep);
+    // Drop only the unlocked session. Clearing the store can erase a capture
+    // that arrives concurrently with the auto-lock alarm.
+    await chrome.storage.session.remove(['mp', 'isUnlocked']);
     await chrome.alarms.clear('reword-auto-lock');
   } catch {}
   notifyAllTabs('VAULT_LOCKED');
@@ -263,14 +260,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await chrome.storage.session.remove(key);
               sendResponse({ pending: false }); return;
             }
-            sendResponse({ pending: true, user: pending.user, domain, update: false, isLocked: true });
+            sendResponse({ pending: true, user: pending.user, email: pending.email, domain, update: false, isLocked: true });
             return;
           }
           const accounts = session.vault?.sites?.filter(site => siteMatchesDomain(site, domain)).flatMap(site => site.accounts || []) || [];
           const account = accounts.find(account => accountMatchesCredential(account, pending));
           const known = accounts.some(account => accountContainsCredential(account, pending));
           if (known) await chrome.storage.session.remove(key);
-          sendResponse({ pending: !known, user: pending.user,
+          sendResponse({ pending: !known, user: pending.user, email: pending.email,
             domain, update: Boolean(account), isLocked: false });
           return;
         }

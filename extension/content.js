@@ -522,11 +522,12 @@
   let dismissedCapture = '';
   let previousUsername = '';
   function showSavePrompt(state) {
-    if (!state?.pending) { saveHost?.remove(); saveHost = null; return; }
-    if (saveHost?.isConnected) return;
-    saveHost = document.createElement('div');
-    saveHost.className = 'reword-save-host';
-    const shadow = saveHost.attachShadow({ mode: 'closed' });
+    saveHost?.remove();
+    saveHost = null;
+    if (!state?.pending) return;
+    const host = document.createElement('div');
+    host.className = 'reword-save-host';
+    const shadow = host.attachShadow({ mode: 'closed' });
     shadow.innerHTML = `<style>
       :host{all:initial;position:fixed;top:16px;right:16px;z-index:2147483647;direction:rtl}
       section{box-sizing:border-box;width:min(350px,calc(100vw - 32px));padding:18px;background:#111827;color:#f8fafc;border:1px solid #64748b;border-radius:14px;box-shadow:0 12px 40px #0006;font:14px system-ui}
@@ -534,29 +535,58 @@
       </style><section role="dialog" aria-label="حفظ بيانات الدخول في ReWord">
       <strong></strong><p></p><button type="button">حفظ</button><button type="button">ليس الآن</button><small></small></section>`;
     shadow.querySelector('strong').textContent = state.update ? 'تحديث كلمة المرور في ReWord؟' : 'حفظ بيانات الدخول في ReWord؟';
-    shadow.querySelector('p').textContent = `${state.domain} — ${state.user || 'بدون اسم مستخدم'}`;
+    shadow.querySelector('p').textContent = `${state.domain} — ${state.user || state.email || 'بدون اسم مستخدم'}`;
     const [save, dismiss] = shadow.querySelectorAll('button');
-    save.textContent = state.update ? 'تحديث' : 'حفظ';
+    save.textContent = state.isLocked ? 'فتح الخزنة' : state.update ? 'تحديث' : 'حفظ';
     const status = shadow.querySelector('small');
-    if (state.isLocked) status.textContent = 'افتح إضافة ReWord لإلغاء قفل الخزنة، ثم اضغط حفظ.';
+    if (state.isLocked) status.textContent = 'افتح الخزنة لمراجعة بيانات الدخول وحفظها.';
+    // Keep the login field focused until the click is delivered. Blurring it can
+    // dispatch a change event and replace this prompt before the click reaches it.
+    shadow.addEventListener('mousedown', event => event.preventDefault());
     save.addEventListener('click', () => {
       save.disabled = true;
-      chrome.runtime.sendMessage({ action: 'CONFIRM_PENDING_CREDENTIAL' }, result => {
-        save.disabled = false;
-        if (chrome.runtime.lastError) { status.textContent = 'أعد تحميل الإضافة ثم حاول مرة أخرى.'; return; }
-        if (result?.success) {
-          dismissedCapture = lastCapture;
-          saveHost?.remove(); saveHost = null;
-        } else status.textContent = result?.error === 'vault_locked'
-          ? 'افتح إضافة ReWord لإلغاء قفل الخزنة، ثم اضغط حفظ.' : 'تعذر الحفظ. أعد كتابة البيانات وحاول مرة أخرى.';
-      });
+      void (async () => {
+        try {
+          if (state.isLocked) {
+            const result = await chrome.runtime.sendMessage({ action: 'OPEN_POPUP' });
+            status.textContent = result?.success ? 'بعد فتح الخزنة، ارجع هنا لتأكيد الحفظ.'
+              : 'اضغط على أيقونة ReWord في شريط المتصفح لفتح الخزنة.';
+            return;
+          }
+          const result = await chrome.runtime.sendMessage({ action: 'CONFIRM_PENDING_CREDENTIAL' });
+          if (saveHost !== host) return;
+          if (result?.success) {
+            dismissedCapture = lastCapture;
+            host.remove();
+            saveHost = null;
+          } else if (result?.error === 'vault_locked') {
+            showSavePrompt({ ...state, isLocked: true });
+          } else {
+            status.textContent = 'تعذر الحفظ. أعد كتابة البيانات وحاول مرة أخرى.';
+          }
+        } catch {
+          status.textContent = 'تعذر الاتصال بإضافة ReWord. أعد تحميل الصفحة وحاول مرة أخرى.';
+        } finally {
+          save.disabled = false;
+        }
+      })();
     });
     dismiss.addEventListener('click', () => {
       dismissedCapture = lastCapture;
       saveHost?.remove(); saveHost = null;
       chrome.runtime.sendMessage({ action: 'DISMISS_CREDENTIAL' }, () => { void chrome.runtime.lastError; });
     });
-    document.documentElement.appendChild(saveHost);
+    saveHost = host;
+    document.documentElement.appendChild(host);
+  }
+
+  async function refreshSavePrompt() {
+    const host = saveHost;
+    const capture = lastCapture;
+    try {
+      const state = await chrome.runtime.sendMessage({ action: 'GET_PENDING_CREDENTIAL' });
+      if (saveHost === host && lastCapture === capture) showSavePrompt(state);
+    } catch { /* A tab may still be running an older content script after an extension reload. */ }
   }
 
   function captureCredentials(target) {
@@ -608,9 +638,7 @@
     openAutofillDropdown(t, null, true);
   }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDropdown(); }, true);
-  chrome.runtime.sendMessage({ action: 'GET_PENDING_CREDENTIAL' }, state => {
-    if (!chrome.runtime.lastError) showSavePrompt(state);
-  });
+  void refreshSavePrompt();
 
   // Immediately remove ALL badges when a form is submitted (login occurred)
   document.addEventListener('submit', event => {
@@ -673,6 +701,10 @@
 
   // Listen for 1-click autofill message from popup
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.action === 'VAULT_UNLOCKED' || msg.action === 'VAULT_LOCKED') {
+      if (saveHost) void refreshSavePrompt();
+      return;
+    }
     if (msg.action === 'TRIGGER_AUTOFILL') {
       const passInput = passwordFields().find(field => !isNewPassword(field));
       const userInput = passInput ? findUsernameField(passInput) : inputs().find(field => isUsername(field) && isFieldVisible(field));

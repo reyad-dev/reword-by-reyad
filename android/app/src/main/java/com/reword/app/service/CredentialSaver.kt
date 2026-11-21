@@ -36,13 +36,26 @@ internal object CredentialSaver {
         val email: String? = null
     )
 
-    suspend fun save(storage: SecureStorage, domain: String?, app: String?, user: String, pass: String, appLabel: String? = null, email: String = "") {
+    enum class Action { ADD, UPDATE, UNCHANGED }
+
+    data class SaveDecision(val action: Action, val siteId: String? = null, val accountId: String? = null)
+
+    suspend fun save(
+        storage: SecureStorage, domain: String?, app: String?, user: String, pass: String,
+        appLabel: String? = null, email: String = "", expected: SaveDecision? = null
+    ) {
         require(pass.isNotEmpty())
         val linkKey = AutofillSiteMatcher.linkKey(domain, app)
         mutate(storage) { root ->
-            val siteId = mergeCredential(root, domain, app, user, pass, storage.getLinkedSiteId(linkKey), appLabel, email)
+            val siteId = mergeCredential(root, domain, app, user, pass, storage.getLinkedSiteId(linkKey), appLabel, email, expected)
             storage.linkSite(linkKey, siteId)
         }
+    }
+
+    fun saveDecision(vault: Vault, domain: String?, app: String?, user: String, pass: String,
+                     linkedSiteId: String?, appLabel: String?, email: String): SaveDecision {
+        val root = Gson().toJsonTree(vault).asJsonObject
+        return selectAccount(matchingSites(root, vault, domain, app, linkedSiteId, appLabel), user, email, pass).decision
     }
 
     /** Adds or edits an account (with notes) from the app UI. */
@@ -155,37 +168,32 @@ internal object CredentialSaver {
      */
     internal fun mergeCredential(
         root: JsonObject, domain: String?, app: String?, user: String, pass: String, linkedSiteId: String? = null,
-        appLabel: String? = null, email: String = ""
+        appLabel: String? = null, email: String = "", expected: SaveDecision? = null
     ): String? {
         require(pass.isNotEmpty())
         val sites = root.sites()
         val target = domain?.takeIf { it.isNotBlank() }?.let { "https://$it" }
             ?: "androidapp://${requireNotNull(app)}"
-        val matchedIds = AutofillSiteMatcher.find(Gson().fromJson(root, Vault::class.java), domain, app, linkedSiteId, appLabel)
-            .map { it.id }
-        val siteObjects = sites.map { it.asJsonObject }
-        val matchingSites = siteObjects.filter { it.str("id") in matchedIds || it.str("url") == target }
-        val site = matchingSites.firstOrNull { s -> s.accounts().any { containsCredential(it.asJsonObject, user, email, pass) } }
-            ?: matchingSites.firstOrNull { s -> s.accounts().any { matchesIdentity(it.asJsonObject, user, email) } }
-            ?: siteObjects.firstOrNull { it.str("url") == target }
-            ?: matchedIds.firstNotNullOfOrNull { id -> siteObjects.firstOrNull { it.str("id") == id } }
+        val matchingSites = matchingSites(root, Gson().fromJson(root, Vault::class.java), domain, app, linkedSiteId, appLabel)
+        val selected = selectAccount(matchingSites, user, email, pass)
+        check(expected == null || expected == selected.decision || selected.decision.action == Action.UNCHANGED) {
+            "Login changed while awaiting confirmation"
+        }
+        val site = selected.site
+            ?: matchingSites.firstOrNull { it.str("url") == target }
+            ?: matchingSites.firstOrNull()
             ?: JsonObject().apply {
                 addProperty("id", UUID.randomUUID().toString())
                 addProperty("name", domain?.takeIf { it.isNotBlank() } ?: appLabel?.takeIf { it.isNotBlank() } ?: app)
                 addProperty("url", target)
                 add("accounts", JsonArray())
             }.also { sites.add(it) }
-        val accounts = site.accounts()
-        val list = accounts.map { it.asJsonObject }
         val trimmed = user.trim()
-        // A password alone only matches an unchanged saved password.
-        val account = list.firstOrNull { containsCredential(it, trimmed, email, pass) }
-            ?: list.firstOrNull { matchesIdentity(it, trimmed, email) }
-            ?: JsonObject().apply {
+        val account = selected.account ?: JsonObject().apply {
             addProperty("id", UUID.randomUUID().toString())
             addProperty("user", trimmed)
             addProperty("notes", "")
-            accounts.add(this)
+            site.accounts().add(this)
         }
         val identityChanged = email.isNotBlank() && (account.str("email") != email.trim() ||
             (account.str("user").equals(email.trim(), true) && trimmed.isNotEmpty() && account.str("user") != trimmed))
@@ -198,6 +206,31 @@ internal object CredentialSaver {
             account.addProperty("email", email.trim())
         }
         return site.str("id").ifBlank { null }
+    }
+
+    private fun matchingSites(
+        root: JsonObject, vault: Vault, domain: String?, app: String?, linkedSiteId: String?, appLabel: String?
+    ): List<JsonObject> {
+        val sites = root.sites().map { it.asJsonObject }
+        val target = domain?.takeIf { it.isNotBlank() }?.let { "https://$it" } ?: "androidapp://$app"
+        val modelSites = vault.sites.orEmpty()
+        val matched = AutofillSiteMatcher.find(vault, domain, app, linkedSiteId, appLabel)
+            .map { match -> sites[modelSites.indexOfFirst { it === match }] }
+        return (matched + sites.filter { it.str("url") == target }).distinct()
+    }
+
+    private data class AccountSelection(
+        val decision: SaveDecision, val site: JsonObject? = null, val account: JsonObject? = null
+    )
+
+    private fun selectAccount(sites: List<JsonObject>, user: String, email: String, pass: String): AccountSelection {
+        val candidates = sites.flatMap { site -> site.accounts().map { site to it.asJsonObject } }
+        val unchanged = candidates.firstOrNull { (_, account) -> containsCredential(account, user, email, pass) }
+        val matching = unchanged ?: candidates.singleOrNull { (_, account) -> matchesIdentity(account, user, email) }
+            ?: return AccountSelection(SaveDecision(Action.ADD))
+        val (site, account) = matching
+        val action = if (unchanged != null) Action.UNCHANGED else Action.UPDATE
+        return AccountSelection(SaveDecision(action, site.str("id"), account.str("id")), site, account)
     }
 
     private fun matchesIdentity(account: JsonObject, user: String, email: String): Boolean {
