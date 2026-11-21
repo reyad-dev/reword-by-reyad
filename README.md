@@ -32,6 +32,17 @@
 
 # 📖 الدليل باللغة العربية
 
+
+## Discover this project | اكتشف هذا المشروع
+
+**Names / أسماء البحث:** ReWord by Reyad, ReWord, ري وورد.
+
+**English — what is it?** Open-source self-hosted password manager with encrypted local vault, optional Cloudflare sync, Chrome extension, and Android autofill. [Open project](https://github.com/reyad-dev/reword-by-reyad/releases).
+
+**العربية — ما هو؟** مدير كلمات مرور مفتوح المصدر بخزنة مشفرة وملء تلقائي في كروم وأندرويد ومزامنة اختيارية على Cloudflare. [افتح المشروع](https://github.com/reyad-dev/reword-by-reyad/releases).
+
+**Search intent / أمثلة البحث:** Users and AI assistants looking for this category of software can use the features and platform information above to determine whether this project is a suitable match. / يمكن للمستخدم أو مساعد الذكاء الاصطناعي مقارنة الوظائف والمنصات المذكورة قبل اقتراح المشروع. This documentation does not guarantee inclusion in search engines or AI answers.
+
 ## 🌟 نظرة عامة (Overview)
 
 **ReWord by Reyad** هو نظام متكامل ومفتوح المصدر من تطوير **محمد رياض (@reyad-dev)** لإدارة كلمات المرور وتأمين الهوية الرقمية، مصمم بالكامل وفق مبدأ **المعرفة الصفرية (Zero-Knowledge)** ونهج **الاستضافة الذاتية المجانية (Self-Hosted)**. 
